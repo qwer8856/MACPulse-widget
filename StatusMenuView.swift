@@ -147,7 +147,6 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
             title.append(NSAttributedString(string: detail, attributes: [.font: NSFont.systemFont(ofSize: 11)]))
             if items[kind]?.attributedTitle != title { items[kind]?.attributedTitle = title }
             if items[kind]?.badge?.stringValue != value { items[kind]?.badge = NSMenuItemBadge(string: value) }
-            items[kind]?.toolTip = detail
         }
     }
 }

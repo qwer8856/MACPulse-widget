@@ -2,13 +2,13 @@
 
 原生 macOS 资源监视、可选菜单栏监控与桌面小组件。查看各核心 CPU、进程内存、磁盘容量、电池与进程 CPU 能耗，并由用户选择退出进程。资源监视使用普通窗口，不会置顶。
 
-当前版本：**3.5.0**。安装后的应用和小组件名称均为 **“系统状态”**。
+当前版本：**3.5.1**。安装后的应用和小组件名称均为 **“系统状态”**。
 
 ## 下载安装
 
-**[下载安装包：MacPulse Widget 3.5.0（M 系列 Mac）](https://github.com/qwer8856/MACPulse-widget/releases/download/v3.5.0/MACPulse-Widget-v3.5.0-macOS-arm64.zip)**
+**[下载安装包：MacPulse Widget 3.5.1（M 系列 Mac）](https://github.com/qwer8856/MACPulse-widget/releases/download/v3.5.1/MACPulse-Widget-v3.5.1-macOS-arm64.zip)**
 
-[版本发布页与校验文件](https://github.com/qwer8856/MACPulse-widget/releases/tag/v3.5.0)
+[版本发布页与校验文件](https://github.com/qwer8856/MACPulse-widget/releases/tag/v3.5.1)
 
 需要 Apple Silicon Mac（M 系列）和 macOS 14 或更新版本。
 
@@ -56,6 +56,8 @@
 **主菜单每个指标右侧都有原生展开箭头**。选择 CPU、内存、磁盘、功率或电池，才展开对应子菜单；主菜单只保留概要，底部不再常驻显示 CPU 图表或电池详情。系统根据屏幕剩余空间决定子菜单展开方向。
 
 右侧数值使用原生徽标，与整行和展开箭头垂直居中；左侧保留标题和状态小字。深浅色、菜单高亮及实时刷新均由原生菜单呈现。
+
+分类行不再重复显示悬浮提示，避免切换分类后残留上一项的说明；工具按钮仍保留提示。
 
 分类悬停使用本应用内的短延时展开，不修改系统全局菜单设置，也不需要辅助功能权限。隐藏的详情表格暂停绘制，重新展开时显示最新采样。
 
