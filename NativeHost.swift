@@ -10,6 +10,7 @@ final class NativeHostDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
     private let metricsView = MenuBarContentView()
     private var snapshot: MetricsSnapshot?
     private var metricItems: [NSMenuItem] = []
+    private var iconOnlyItem: NSMenuItem?
 
     init(defaults: UserDefaults = .standard) {
         preferences = MonitorPreferences(defaults: defaults)
@@ -37,12 +38,12 @@ final class NativeHostDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
 
     private func createStatusItem() {
         guard statusItem == nil else { return }
-        let statusItem = NSStatusBar.system.statusItem(withLength: preferences.metric.width)
+        let statusItem = NSStatusBar.system.statusItem(withLength: MenuBarMetric.width(for: preferences.metrics))
         self.statusItem = statusItem
         statusItem.button?.image = NSImage(systemSymbolName: "waveform.path.ecg", accessibilityDescription: "系统状态")
         statusItem.button?.image?.size = NSSize(width: 14, height: 14)
         statusItem.button?.imagePosition = .imageLeading
-        statusItem.button?.font = .monospacedDigitSystemFont(ofSize: 11, weight: .medium)
+        statusItem.button?.font = MenuBarMetric.font
         statusItem.button?.toolTip = "系统状态"
         let menu = NSMenu()
         let metricsItem = NSMenuItem()
@@ -53,11 +54,15 @@ final class NativeHostDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         let selection = NSMenuItem(title: "显示内容", action: nil, keyEquivalent: "")
         let submenu = NSMenu()
         metricItems = MenuBarMetric.allCases.enumerated().map { index, metric in
-            let menuItem = item(metric.label, action: #selector(selectMetric(_:)))
+            let menuItem = item(metric.label, action: #selector(toggleMetric(_:)))
             menuItem.tag = index
             submenu.addItem(menuItem)
             return menuItem
         }
+        submenu.addItem(.separator())
+        let iconOnly = item("仅图标", action: #selector(clearMetrics))
+        iconOnlyItem = iconOnly
+        submenu.addItem(iconOnly)
         selection.submenu = submenu
         menu.addItem(selection)
         menu.addItem(item("关闭菜单栏显示", action: #selector(disableMenuBar)))
@@ -75,12 +80,15 @@ final class NativeHostDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
 
     private func updateStatusItem() {
         guard let statusItem else { return }
-        statusItem.length = preferences.metric.width
-        statusItem.button?.title = preferences.metric.title(snapshot)
-        statusItem.button?.setAccessibilityLabel("系统状态，\(MenuBarText.title(snapshot))")
+        let selected = preferences.metrics
+        let title = MenuBarMetric.title(for: selected, snapshot: snapshot)
+        statusItem.length = MenuBarMetric.width(for: selected)
+        statusItem.button?.title = title
+        statusItem.button?.setAccessibilityLabel(title.isEmpty ? "系统状态" : "系统状态，\(title)")
         for menuItem in metricItems {
-            menuItem.state = MenuBarMetric.allCases[menuItem.tag] == preferences.metric ? .on : .off
+            menuItem.state = selected.contains(MenuBarMetric.allCases[menuItem.tag]) ? .on : .off
         }
+        iconOnlyItem?.state = selected.isEmpty ? .on : .off
     }
 
     private func applyMenuBarPreference() {
@@ -90,13 +98,24 @@ final class NativeHostDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
             NSStatusBar.system.removeStatusItem(statusItem)
             self.statusItem = nil
             metricItems = []
+            iconOnlyItem = nil
         }
         resourceView?.updatePreferences(preferences)
         updateStatusItem()
     }
 
-    @objc private func selectMetric(_ sender: NSMenuItem) {
-        preferences.metric = MenuBarMetric.allCases[sender.tag]
+    @objc private func toggleMetric(_ sender: NSMenuItem) {
+        let metric = MenuBarMetric.allCases[sender.tag]
+        var selected = preferences.metrics
+        if selected.contains(metric) { selected.remove(metric) }
+        else { selected.insert(metric) }
+        preferences.metrics = selected
+        resourceView?.updatePreferences(preferences)
+        updateStatusItem()
+    }
+
+    @objc private func clearMetrics() {
+        preferences.metrics = []
         resourceView?.updatePreferences(preferences)
         updateStatusItem()
     }
@@ -115,9 +134,9 @@ final class NativeHostDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
                 self.preferences.menuBarEnabled = enabled
                 self.applyMenuBarPreference()
             }
-            view.onMetricChanged = { [weak self] metric in
+            view.onMetricsChanged = { [weak self] metrics in
                 guard let self else { return }
-                self.preferences.metric = metric
+                self.preferences.metrics = metrics
                 self.updateStatusItem()
             }
             view.onActivityMonitor = { [weak self] in self?.openActivityMonitor() }
