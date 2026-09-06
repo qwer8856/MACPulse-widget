@@ -1,4 +1,5 @@
 import AppKit
+import ServiceManagement
 
 enum MenuBarMetric: String, CaseIterable {
     case cpu, memory, disk, power
@@ -70,13 +71,16 @@ final class ResourceMonitorContentView: NSView {
     let metricsView = MenuBarContentView()
     let menuBarToggle = NSButton(checkboxWithTitle: "在菜单栏显示", target: nil, action: nil)
     let metricToggles = MenuBarMetric.allCases.map { NSButton(checkboxWithTitle: $0.label, target: nil, action: nil) }
+    let loginItemToggle = NSButton(checkboxWithTitle: "登录时自动启动", target: nil, action: nil)
     var onMenuBarChanged: ((Bool) -> Void)?
     var onMetricsChanged: ((Set<MenuBarMetric>) -> Void)?
+    var onLoginItemToggle: (() -> Void)?
+    var onLoginItemSettings: (() -> Void)?
     var onActivityMonitor: (() -> Void)?
     var onRefreshWidgets: (() -> Void)?
 
     init() {
-        super.init(frame: NSRect(x: 0, y: 0, width: 340, height: 414))
+        super.init(frame: NSRect(x: 0, y: 0, width: 340, height: 454))
         let separator = NSBox()
         separator.boxType = .separator
         let label = NSTextField(labelWithString: "显示内容")
@@ -92,6 +96,12 @@ final class ResourceMonitorContentView: NSView {
         }
         menuBarToggle.target = self
         menuBarToggle.action = #selector(changeMenuBar)
+        loginItemToggle.target = self
+        loginItemToggle.action = #selector(changeLoginItem)
+        loginItemToggle.allowsMixedState = true
+        let loginSettings = NSButton(image: NSImage(systemSymbolName: "gearshape", accessibilityDescription: "登录项设置")!, target: self, action: #selector(openLoginSettings))
+        loginSettings.bezelStyle = .rounded
+        loginSettings.toolTip = "打开系统登录项设置"
         let activity = NSButton(title: "活动监视器", target: self, action: #selector(openActivity))
         activity.bezelStyle = .rounded
         activity.image = NSImage(systemSymbolName: "waveform.path.ecg", accessibilityDescription: nil)
@@ -99,7 +109,7 @@ final class ResourceMonitorContentView: NSView {
         let refresh = NSButton(image: NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: "刷新桌面小组件")!, target: self, action: #selector(refreshWidgets))
         refresh.bezelStyle = .rounded
         refresh.toolTip = "请求刷新桌面小组件"
-        for view in [metricsView, separator, menuBarToggle, label, choices, activity, refresh] {
+        for view in [metricsView, separator, menuBarToggle, label, choices, loginItemToggle, loginSettings, activity, refresh] {
             view.translatesAutoresizingMaskIntoConstraints = false
             addSubview(view)
         }
@@ -119,6 +129,12 @@ final class ResourceMonitorContentView: NSView {
             choices.leadingAnchor.constraint(equalTo: separator.leadingAnchor),
             choices.trailingAnchor.constraint(equalTo: separator.trailingAnchor),
             choices.heightAnchor.constraint(equalToConstant: 20),
+            loginItemToggle.leadingAnchor.constraint(equalTo: separator.leadingAnchor),
+            loginItemToggle.topAnchor.constraint(equalTo: choices.bottomAnchor, constant: 18),
+            loginItemToggle.trailingAnchor.constraint(lessThanOrEqualTo: loginSettings.leadingAnchor, constant: -8),
+            loginSettings.trailingAnchor.constraint(equalTo: separator.trailingAnchor),
+            loginSettings.centerYAnchor.constraint(equalTo: loginItemToggle.centerYAnchor),
+            loginSettings.widthAnchor.constraint(equalToConstant: 44),
             activity.leadingAnchor.constraint(equalTo: separator.leadingAnchor),
             activity.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -16),
             refresh.trailingAnchor.constraint(equalTo: separator.trailingAnchor),
@@ -136,7 +152,26 @@ final class ResourceMonitorContentView: NSView {
         }
     }
 
+    func updateLoginItem(_ status: SMAppService.Status) {
+        switch status {
+        case .enabled:
+            loginItemToggle.title = "登录时自动启动"
+            loginItemToggle.state = .on
+        case .requiresApproval:
+            loginItemToggle.title = "登录时自动启动（待批准）"
+            loginItemToggle.state = .mixed
+        case .notRegistered, .notFound:
+            loginItemToggle.title = "登录时自动启动"
+            loginItemToggle.state = .off
+        default:
+            loginItemToggle.title = "登录时自动启动（不可用）"
+            loginItemToggle.state = .off
+        }
+    }
+
     @objc private func changeMenuBar() { onMenuBarChanged?(menuBarToggle.state == .on) }
+    @objc private func changeLoginItem() { onLoginItemToggle?() }
+    @objc private func openLoginSettings() { onLoginItemSettings?() }
     @objc private func changeMetrics() {
         let selected = MenuBarMetric.allCases.enumerated().compactMap { index, metric in
             metricToggles[index].state == .on ? metric : nil

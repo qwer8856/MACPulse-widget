@@ -7,6 +7,8 @@ final class NativeHostDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
     private(set) var resourceView: ResourceMonitorContentView?
     private let preferences: MonitorPreferences
     private let monitor = LiveMetricsMonitor()
+    private let loginItem = LoginItemController()
+    private var launchedAtLogin = false
     private let metricsView = MenuBarContentView()
     private var snapshot: MetricsSnapshot?
     private var metricItems: [NSMenuItem] = []
@@ -17,14 +19,26 @@ final class NativeHostDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         super.init()
     }
 
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        launchedAtLogin = LoginLaunch.isLoginItem(NSAppleEventManager.shared().currentAppleEvent)
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if CommandLine.arguments.contains("--login-item-status") {
+            print("Login item status: \(loginItem.status.rawValue)")
+            NSApp.terminate(nil)
+            return
+        }
         if CommandLine.arguments.contains("--widget-status") {
             reportConfigurations(exitAfter: true)
             return
         }
         configureApplicationMenu()
         applyMenuBarPreference()
-        showResourceMonitor()
+        launchedAtLogin = launchedAtLogin || LoginLaunch.isLoginItem(NSAppleEventManager.shared().currentAppleEvent)
+        if LoginLaunch.shouldShowWindow(isLoginItem: launchedAtLogin, menuBarEnabled: preferences.menuBarEnabled) {
+            showResourceMonitor()
+        }
         monitor.onSample = { [weak self] snapshot in
             guard let self else { return }
             self.snapshot = snapshot
@@ -77,6 +91,10 @@ final class NativeHostDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
     }
 
     func applicationWillTerminate(_ notification: Notification) { monitor.stop() }
+
+    func applicationDidBecomeActive(_ notification: Notification) {
+        resourceView?.updateLoginItem(loginItem.status)
+    }
 
     private func updateStatusItem() {
         guard let statusItem else { return }
@@ -139,6 +157,8 @@ final class NativeHostDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
                 self.preferences.metrics = metrics
                 self.updateStatusItem()
             }
+            view.onLoginItemToggle = { [weak self] in self?.toggleLoginItem() }
+            view.onLoginItemSettings = { [weak self] in self?.loginItem.openSettings() }
             view.onActivityMonitor = { [weak self] in self?.openActivityMonitor() }
             view.onRefreshWidgets = { [weak self] in self?.refreshWidgets() }
             view.updatePreferences(preferences)
@@ -153,9 +173,24 @@ final class NativeHostDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
             window.center()
             self.window = window
         }
+        resourceView?.updateLoginItem(loginItem.status)
         NSApp.setActivationPolicy(.regular)
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    private func toggleLoginItem() {
+        let status = loginItem.status
+        do {
+            try loginItem.setEnabled(status != .enabled && status != .requiresApproval)
+        } catch {
+            let alert = NSAlert()
+            alert.messageText = "无法更改登录启动设置"
+            alert.informativeText = "请确认应用位于“应用程序”文件夹，也可在系统登录项设置中查看状态。\n\n\(error.localizedDescription)"
+            alert.addButton(withTitle: "好")
+            if let window { alert.beginSheetModal(for: window) }
+        }
+        resourceView?.updateLoginItem(loginItem.status)
     }
 
     func windowWillClose(_ notification: Notification) {
