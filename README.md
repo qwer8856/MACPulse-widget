@@ -10,9 +10,9 @@
 
 [版本发布页与校验文件](https://github.com/qwer8856/MACPulse-widget/releases/tag/v2.0.3)
 
-需要 Apple Silicon Mac（M 系列）和 macOS 14 或更新版本。普通用户无需安装开发工具或自行编译。
+需要 Apple Silicon Mac（M 系列）和 macOS 14 或更新版本。
 
-1. 下载并解压 ZIP 安装包。
+1. 从 [Releases](https://github.com/qwer8856/MACPulse-widget/releases) 下载并解压 ZIP 安装包。
 2. 将“系统状态.app”拖入“应用程序”文件夹。
 3. 启动“系统状态”一次。
 4. 在桌面空白处右键，打开“编辑小组件”，搜索 **“系统状态”**，选择尺寸并添加。
@@ -32,53 +32,11 @@
 <img src="docs/images/small.png" width="164" alt="小号系统状态小组件">
 <img src="docs/images/large.png" width="344" alt="大号系统状态小组件">
 
-## 源码构建环境（可选）
-
-- Apple Silicon Mac（M 系列）；当前脚本只构建 arm64，不支持 Intel。
-- 运行需要 macOS 14 或更新版本。
-- 构建需要较新的 Xcode Command Line Tools，或包含 macOS SDK 的完整 Xcode。已在 macOS 26.6.2、Swift 6.2.1 环境构建验证，旧工具链未验证。
-- 无第三方依赖，不需要服务器、数据库或付费开发者账号即可本地构建。
-
-## 从源码构建（可选）
-
-1. 安装 Apple 开发工具。已经安装的设备可跳过，首次安装须等待系统安装器完成：
-
-   ```sh
-   xcode-select --install
-   ```
-
-2. 下载源码：
-
-   ```sh
-   git clone https://github.com/qwer8856/MACPulse-widget.git
-   cd MACPulse-widget
-   ```
-
-3. 编译并安装至“应用程序”，当前账户须有该目录的写入权限：
-
-   ```sh
-   zsh build.sh /Applications
-   pluginkit -a '/Applications/系统状态.app/Contents/PlugIns/SystemStatusWidget.appex'
-   open '/Applications/系统状态.app'
-   ```
-
-   构建脚本会编译宿主与小组件扩展，完成本地临时签名并验证。成功后会输出应用路径。仅构建、不安装可执行 `zsh build.sh`，产物位于系统临时目录，具体路径以脚本输出为准。
-
-4. 在桌面空白处右键，打开“编辑小组件”，搜索 **“系统状态”**，选择尺寸并添加。
-
-若未找到组件，关闭并重新打开“编辑小组件”。仍未出现时可重新注册应用，再打开应用与组件列表：
-
-```sh
-/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister -f '/Applications/系统状态.app'
-pluginkit -a '/Applications/系统状态.app/Contents/PlugIns/SystemStatusWidget.appex'
-open '/Applications/系统状态.app'
-```
-
 ## 使用与更新
 
 菜单栏波形图标提供刷新和组件状态查询。点击小组件或刷新图标也会请求更新。退出菜单栏程序后，桌面小组件仍由系统调度采样，无需设置后台任务或登录项。
 
-使用安装包更新时，先从菜单栏退出应用，再从 [Releases](https://github.com/qwer8856/MACPulse-widget/releases) 下载新版，替换“应用程序”中的旧版并启动。源码用户可在源码目录执行 `git pull --ff-only`，重新构建安装。使用本仓库相同标识的版本升级通常可保留已添加的小组件。
+更新时先从菜单栏退出应用，再从 [Releases](https://github.com/qwer8856/MACPulse-widget/releases) 下载新版，替换“应用程序”中的旧版并启动。使用本仓库相同标识的版本升级通常可保留已添加的小组件。
 
 ## 数据与限制
 
@@ -94,6 +52,3 @@ open '/Applications/系统状态.app'
 - 功率读数依赖机型及供电状态，部分设备不支持，会显示 `--`；传感器自身也可能约一分钟才更新一次。
 - 功率读数超过 3 分钟会隐藏；整份采样超过 15 分钟显示“等待更新”，避免把旧数据当作当前状态。
 - 程序不联网、不记录运行日志，不需要辅助功能或录屏权限。
-- 构建产物使用临时签名，未经 Developer ID 签名及 Apple 公证。直接分发二进制到其他电脑可能被系统拦截；正式分发应补齐签名、公证和目标机型验证。
-
-Git 仓库只包含源码、构建所需资源和本文中的示例图片；安装包和 SHA-256 校验文件单独发布在 Releases，不提交构建缓存或本机运行数据。
