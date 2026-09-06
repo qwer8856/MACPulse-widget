@@ -77,7 +77,6 @@ final class ResourceMonitorContentView: NSView {
     var onLoginItemToggle: (() -> Void)?
     var onLoginItemSettings: (() -> Void)?
     var onActivityMonitor: (() -> Void)?
-    var onRefreshWidgets: (() -> Void)?
 
     init() {
         super.init(frame: NSRect(x: 0, y: 0, width: 340, height: 454))
@@ -106,10 +105,7 @@ final class ResourceMonitorContentView: NSView {
         activity.bezelStyle = .rounded
         activity.image = NSImage(systemSymbolName: "waveform.path.ecg", accessibilityDescription: nil)
         activity.imagePosition = .imageLeading
-        let refresh = NSButton(image: NSImage(systemSymbolName: "arrow.clockwise", accessibilityDescription: "刷新桌面小组件")!, target: self, action: #selector(refreshWidgets))
-        refresh.bezelStyle = .rounded
-        refresh.toolTip = "请求刷新桌面小组件"
-        for view in [metricsView, separator, menuBarToggle, label, choices, loginItemToggle, loginSettings, activity, refresh] {
+        for view in [metricsView, separator, menuBarToggle, label, choices, loginItemToggle, loginSettings, activity] {
             view.translatesAutoresizingMaskIntoConstraints = false
             addSubview(view)
         }
@@ -136,10 +132,7 @@ final class ResourceMonitorContentView: NSView {
             loginSettings.centerYAnchor.constraint(equalTo: loginItemToggle.centerYAnchor),
             loginSettings.widthAnchor.constraint(equalToConstant: 44),
             activity.leadingAnchor.constraint(equalTo: separator.leadingAnchor),
-            activity.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -16),
-            refresh.trailingAnchor.constraint(equalTo: separator.trailingAnchor),
-            refresh.centerYAnchor.constraint(equalTo: activity.centerYAnchor),
-            refresh.widthAnchor.constraint(equalToConstant: 36)
+            activity.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -16)
         ])
     }
 
@@ -179,5 +172,4 @@ final class ResourceMonitorContentView: NSView {
         onMetricsChanged?(Set(selected))
     }
     @objc private func openActivity() { onActivityMonitor?() }
-    @objc private func refreshWidgets() { onRefreshWidgets?() }
 }

@@ -14,6 +14,7 @@ final class NativeHostDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
     private var launchedAtLogin = false
     private var snapshot: MetricsSnapshot?
     private var statusMenuIsOpen = false
+    private var resourceWindowNeedsSampling = false
 
     init(defaults: UserDefaults = .standard) {
         preferences = MonitorPreferences(defaults: defaults)
@@ -31,10 +32,15 @@ final class NativeHostDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
             return
         }
         if CommandLine.arguments.contains("--widget-status") {
-            reportConfigurations(exitAfter: true)
+            reportConfigurations()
             return
         }
         configureApplicationMenu()
+        detailMonitor.onSample = { [weak self] details in
+            guard let self else { return }
+            self.statusMenuView.updateDetails(details)
+            if self.resourceWindowNeedsSampling { self.dashboard?.updateDetails(details) }
+        }
         applyMenuBarPreference()
         launchedAtLogin = launchedAtLogin || LoginLaunch.isLoginItem(NSAppleEventManager.shared().currentAppleEvent)
         if LoginLaunch.shouldShowWindow(isLoginItem: launchedAtLogin, menuBarEnabled: preferences.menuBarEnabled) {
@@ -76,7 +82,6 @@ final class NativeHostDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         statusMenuView.onOpenMonitor = { [weak self] in self?.showResourceMonitor() }
         statusMenuView.onDisable = { [weak self] in self?.disableMenuBar() }
         statusMenuView.onQuit = { [weak self] in self?.quit() }
-        statusMenuView.onRefresh = { [weak self] in self?.refreshWidgets() }
         updateStatusItem()
     }
 
@@ -98,8 +103,21 @@ final class NativeHostDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         statusItem.button?.setAccessibilityLabel(title.isEmpty ? "系统状态" : "系统状态，\(title)")
     }
 
-    func menuWillOpen(_ menu: NSMenu) { statusMenuIsOpen = true }
-    func menuDidClose(_ menu: NSMenu) { statusMenuIsOpen = false; updateStatusItem() }
+    func menuWillOpen(_ menu: NSMenu) {
+        statusMenuIsOpen = true
+        if !resourceWindowNeedsSampling { statusMenuView.updateDetails(nil) }
+        updateDetailedSampling()
+    }
+    func menuDidClose(_ menu: NSMenu) {
+        statusMenuIsOpen = false
+        updateStatusItem()
+        updateDetailedSampling()
+    }
+
+    private func updateDetailedSampling() {
+        if statusMenuIsOpen || resourceWindowNeedsSampling { detailMonitor.start() }
+        else { detailMonitor.stop() }
+    }
 
     private func applyMenuBarPreference() {
         if preferences.menuBarEnabled {
@@ -136,14 +154,12 @@ final class NativeHostDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
             view.onLoginItemToggle = { [weak self] in self?.toggleLoginItem() }
             view.onLoginItemSettings = { [weak self] in self?.loginItem.openSettings() }
             view.onActivityMonitor = { [weak self] in self?.openActivityMonitor() }
-            view.onRefreshWidgets = { [weak self] in self?.refreshWidgets() }
             view.updatePreferences(preferences)
             if let snapshot { view.metricsView.update(snapshot) }
             resourceView = view
             let dashboard = ResourceDashboardView(configuration: view)
             self.dashboard = dashboard
             if let snapshot { dashboard.update(snapshot) }
-            detailMonitor.onSample = { [weak self] in self?.dashboard?.updateDetails($0) }
             let window = NSWindow(contentRect: dashboard.frame, styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
             window.title = "资源监视"
             window.level = .normal
@@ -158,7 +174,8 @@ final class NativeHostDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         NSApp.setActivationPolicy(.regular)
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
-        detailMonitor.start()
+        resourceWindowNeedsSampling = true
+        updateDetailedSampling()
     }
 
     private func toggleLoginItem() {
@@ -176,13 +193,14 @@ final class NativeHostDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
     }
 
     func windowWillClose(_ notification: Notification) {
-        detailMonitor.stop()
+        resourceWindowNeedsSampling = false
+        updateDetailedSampling()
         dashboard?.disk.cancel()
         if preferences.menuBarEnabled { NSApp.setActivationPolicy(.accessory) }
     }
 
-    func windowDidMiniaturize(_ notification: Notification) { detailMonitor.stop() }
-    func windowDidDeminiaturize(_ notification: Notification) { detailMonitor.start() }
+    func windowDidMiniaturize(_ notification: Notification) { resourceWindowNeedsSampling = false; updateDetailedSampling() }
+    func windowDidDeminiaturize(_ notification: Notification) { resourceWindowNeedsSampling = true; updateDetailedSampling() }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         !preferences.menuBarEnabled
@@ -230,33 +248,19 @@ final class NativeHostDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         return item
     }
 
-    @objc private func refreshWidgets() { WidgetCenter.shared.reloadAllTimelines() }
-    @objc private func showStatus() { reportConfigurations(exitAfter: false) }
     @objc private func quit() { NSApp.terminate(nil) }
 
-    private func reportConfigurations(exitAfter: Bool) {
+    private func reportConfigurations() {
         WidgetCenter.shared.getCurrentConfigurations { result in
             DispatchQueue.main.async {
                 switch result {
                 case .success(let configurations):
-                    if exitAfter {
-                        let data = try! JSONSerialization.data(withJSONObject: configurations.map { ["kind": $0.kind, "family": String(describing: $0.family)] }, options: [.prettyPrinted, .sortedKeys])
-                        print(String(data: data, encoding: .utf8)!)
-                        NSApp.terminate(nil)
-                    } else {
-                        let alert = NSAlert()
-                        alert.messageText = "系统状态"
-                        alert.informativeText = "已添加 \(configurations.count) 个原生小组件。"
-                        alert.runModal()
-                    }
+                    let data = try! JSONSerialization.data(withJSONObject: configurations.map { ["kind": $0.kind, "family": String(describing: $0.family)] }, options: [.prettyPrinted, .sortedKeys])
+                    print(String(data: data, encoding: .utf8)!)
+                    NSApp.terminate(nil)
                 case .failure(let error):
-                    if exitAfter {
-                        fputs("Widget status: \(error)\n", stderr)
-                        exit(1)
-                    } else {
-                        let alert = NSAlert(error: error)
-                        alert.runModal()
-                    }
+                    fputs("Widget status: \(error)\n", stderr)
+                    exit(1)
                 }
             }
         }
