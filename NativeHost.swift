@@ -111,10 +111,12 @@ final class NativeHostDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
     }
     func menuDidClose(_ menu: NSMenu) {
         statusMenuIsOpen = false
+        statusMenuView.endTracking()
         statusMenuView.disk.cancelPendingAutomaticScan()
         updateStatusItem()
         updateDetailedSampling()
     }
+    func menu(_ menu: NSMenu, willHighlight item: NSMenuItem?) { statusMenuView.highlight(item) }
 
     private func updateDetailedSampling() {
         if statusMenuIsOpen || resourceWindowNeedsSampling { detailMonitor.start() }
@@ -129,7 +131,7 @@ final class NativeHostDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
             panel.directoryURL = self.statusMenuView.disk.root; panel.prompt = "扫描"
             NSApp.activate(ignoringOtherApps: true)
             panel.begin { [weak self] response in
-                if response == .OK, let url = panel.url { self?.statusMenuView.disk.scan(url) }
+                if response == .OK, let url = panel.url { self?.statusMenuView.disk.scanUserSelected(url) }
             }
         }
     }

@@ -22,7 +22,7 @@ enum StatusDetail: String, CaseIterable {
         }
     }
     var page: Int {
-        switch self { case .cpu: return 1; case .memory: return 2; case .disk: return 3; case .power, .battery: return 4 }
+        switch self { case .cpu: return 1; case .memory: return 2; case .disk: return 3; case .power: return 4; case .battery: return 5 }
     }
 }
 
@@ -36,12 +36,13 @@ final class StatusDetailView: NSView {
     private let metricSummary: MetricSummaryView?
     private var snapshot: MetricsSnapshot?
     private var details: DetailedSnapshot?
+    private var isPresented = false
     var onOpenMonitor: ((Int) -> Void)?
 
     init(kind: StatusDetail) {
         self.kind = kind
         metricSummary = kind == .cpu ? nil : MetricSummaryView(kind: kind, compact: true)
-        super.init(frame: NSRect(x: 0, y: 0, width: 520, height: 500))
+        super.init(frame: NSRect(x: 0, y: 0, width: 520, height: kind == .battery ? 206 : 500))
         title.stringValue = kind.title
         title.font = .systemFont(ofSize: 13, weight: .semibold)
         summary.font = .systemFont(ofSize: 11)
@@ -57,6 +58,7 @@ final class StatusDetailView: NSView {
             header.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 10), header.heightAnchor.constraint(equalToConstant: metricSummary?.preferredHeight ?? 28),
             open.leadingAnchor.constraint(equalTo: title.leadingAnchor), open.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -14)
         ])
+        if kind == .battery { return }
         let body: NSView
         if kind == .disk { body = disk }
         else {
@@ -94,19 +96,24 @@ final class StatusDetailView: NSView {
         } else if kind == .disk { disk.cancelPendingAutomaticScan() }
     }
     func update(_ snapshot: MetricsSnapshot) { self.snapshot = snapshot; refresh(reloadProcesses: false) }
+    func prepareForPresentation() { isPresented = true; refresh(reloadProcesses: true) }
+    func endPresentation() { isPresented = false; if kind == .disk { disk.cancelPendingAutomaticScan() } }
     func updateDetails(_ details: DetailedSnapshot?) {
         self.details = details
-        if details == nil { processes?.clear() }
-        if kind == .cpu { cores.update(details?.cores ?? Array(repeating: nil, count: ProcessInfo.processInfo.processorCount)) }
         refresh(reloadProcesses: true)
     }
     private func refresh(reloadProcesses: Bool) {
+        let updateTable = reloadProcesses && (isPresented || window?.isVisible == true)
         if kind == .cpu {
             title.stringValue = "CPU · \(ProcessInfo.processInfo.processorCount) 个逻辑核心"
             summary.stringValue = "总利用率 \(MenuBarText.percent(snapshot?.cpu))"
+            if updateTable { cores.update(details?.cores ?? Array(repeating: nil, count: ProcessInfo.processInfo.processorCount)) }
         }
         metricSummary?.update(snapshot, details: details)
-        if reloadProcesses, window != nil, let details { processes?.update(details) }
+        if updateTable {
+            if let details { processes?.update(details) }
+            else { processes?.clear() }
+        }
     }
     @objc private func openMonitor() { onOpenMonitor?(kind.page) }
 }

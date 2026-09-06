@@ -1,6 +1,6 @@
 import AppKit
 
-final class StatusMenuController {
+final class StatusMenuController: NSObject, NSMenuDelegate {
     let menu = NSMenu()
     let header = NSView(frame: NSRect(x: 0, y: 0, width: 380, height: 32))
     private let timestamp = NSTextField(labelWithString: "--:--:--")
@@ -10,6 +10,7 @@ final class StatusMenuController {
     private(set) var panels: [StatusDetail: StatusDetailView] = [:]
     private var snapshot: MetricsSnapshot?
     private var details: DetailedSnapshot?
+    private var highlightTimer: Timer?
     var view: NSView { options }
     var toggles: [NSButton] { options.toggles }
     var cores: CoreUsageView { panels[.cpu]!.cores }
@@ -23,7 +24,8 @@ final class StatusMenuController {
         let formatter = DateFormatter(); formatter.dateFormat = "HH:mm:ss"; return formatter
     }()
 
-    init() {
+    override init() {
+        super.init()
         menu.minimumWidth = 380; menu.autoenablesItems = false
         let title = NSTextField(labelWithString: "系统状态")
         title.font = .systemFont(ofSize: 13, weight: .semibold)
@@ -40,6 +42,7 @@ final class StatusMenuController {
             item.image = NSImage(systemSymbolName: kind.symbol, accessibilityDescription: kind.title)
             item.image?.size = NSSize(width: 15, height: 15)
             let submenu = NSMenu(title: kind.title)
+            submenu.delegate = self
             submenu.autoenablesItems = false
             let panel = StatusDetailView(kind: kind)
             panel.onOpenMonitor = { [weak self] page in self?.menu.cancelTracking(); self?.onOpenMonitor?(page) }
@@ -61,6 +64,33 @@ final class StatusMenuController {
         updateRows()
     }
     func updateSelection(_ selected: Set<MenuBarMetric>) { options.updateSelection(selected) }
+    func highlight(_ item: NSMenuItem?) {
+        highlightTimer?.invalidate()
+        guard let item, let kind = items.first(where: { $0.value === item })?.key else { return }
+        var attempts = 0
+        let timer = Timer(timeInterval: 0.04, repeats: true) { [weak self, weak item] timer in
+            guard let self, let item, self.menu.highlightedItem === item,
+                  self.panels[kind]?.window?.isVisible != true else { timer.invalidate(); return }
+            // Invoke our own menu item's public action without a global event monitor or system preference change.
+            _ = item.accessibilityPerformPress()
+            attempts += 1
+            if attempts == 4 { timer.invalidate() }
+        }
+        highlightTimer = timer
+        RunLoop.main.add(timer, forMode: .eventTracking)
+    }
+    func endTracking() {
+        highlightTimer?.invalidate(); highlightTimer = nil
+        panels.values.forEach { $0.endPresentation() }
+    }
+    func menuWillOpen(_ menu: NSMenu) {
+        highlightTimer?.invalidate(); highlightTimer = nil
+        for kind in StatusDetail.allCases where items[kind]?.submenu === menu { panels[kind]?.prepareForPresentation() }
+    }
+    func menuDidClose(_ menu: NSMenu) {
+        for kind in StatusDetail.allCases where items[kind]?.submenu === menu { panels[kind]?.endPresentation() }
+    }
+    deinit { highlightTimer?.invalidate() }
     func update(_ snapshot: MetricsSnapshot) {
         self.snapshot = snapshot
         timestamp.stringValue = timeFormatter.string(from: snapshot.sampledAt)

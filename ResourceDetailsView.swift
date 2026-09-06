@@ -101,46 +101,28 @@ final class MetricGaugeView: NSView {
 
 final class MetricSummaryView: NSView {
     let primary: MetricGaugeView
-    let power: MetricGaugeView?
     private let detail = NSTextField(wrappingLabelWithString: "等待采样")
     private let kind: StatusDetail
-    private let compact: Bool
     private var powerScale = PowerScale()
     var preferredHeight: CGFloat {
-        switch kind { case .memory: return 82; case .disk: return 74; default: return compact ? 148 : 102 }
+        switch kind { case .memory: return 82; case .disk: return 74; case .power: return 98; default: return 108 }
     }
     init(kind: StatusDetail, compact: Bool = false) {
-        self.kind = kind; self.compact = compact
+        self.kind = kind
         switch kind {
         case .memory: primary = MetricGaugeView(title: "已用内存", color: .systemGreen)
         case .disk: primary = MetricGaugeView(title: "已用空间", color: .systemOrange)
+        case .power: primary = MetricGaugeView(title: "供电功率", color: .systemPink, showsScale: true)
         default: primary = MetricGaugeView(title: "电池电量", color: .systemTeal)
         }
-        power = kind == .power || kind == .battery ? MetricGaugeView(title: "供电功率", color: .systemPink, showsScale: true) : nil
         super.init(frame: .zero)
         detail.font = .systemFont(ofSize: 11); detail.textColor = .secondaryLabelColor
         for view in [primary, detail] { view.translatesAutoresizingMaskIntoConstraints = false; addSubview(view) }
         NSLayoutConstraint.activate([
-            primary.leadingAnchor.constraint(equalTo: leadingAnchor), primary.topAnchor.constraint(equalTo: topAnchor),
+            primary.leadingAnchor.constraint(equalTo: leadingAnchor), primary.trailingAnchor.constraint(equalTo: trailingAnchor), primary.topAnchor.constraint(equalTo: topAnchor),
+            detail.topAnchor.constraint(equalTo: primary.bottomAnchor, constant: 6),
             detail.leadingAnchor.constraint(equalTo: leadingAnchor), detail.trailingAnchor.constraint(equalTo: trailingAnchor), detail.bottomAnchor.constraint(equalTo: bottomAnchor)
         ])
-        if let power {
-            power.translatesAutoresizingMaskIntoConstraints = false; addSubview(power)
-            power.trailingAnchor.constraint(equalTo: trailingAnchor).isActive = true
-            if compact {
-                primary.trailingAnchor.constraint(equalTo: trailingAnchor).isActive = true
-                power.leadingAnchor.constraint(equalTo: leadingAnchor).isActive = true
-                power.topAnchor.constraint(equalTo: primary.bottomAnchor, constant: 6).isActive = true
-            } else {
-                primary.widthAnchor.constraint(equalTo: widthAnchor, multiplier: 0.5, constant: -12).isActive = true
-                power.leadingAnchor.constraint(equalTo: primary.trailingAnchor, constant: 24).isActive = true
-                power.topAnchor.constraint(equalTo: topAnchor).isActive = true
-            }
-            detail.topAnchor.constraint(equalTo: power.bottomAnchor, constant: 6).isActive = true
-        } else {
-            primary.trailingAnchor.constraint(equalTo: trailingAnchor).isActive = true
-            detail.topAnchor.constraint(equalTo: primary.bottomAnchor, constant: 4).isActive = true
-        }
         update(nil, details: nil)
     }
     required init?(coder: NSCoder) { fatalError() }
@@ -161,15 +143,16 @@ final class MetricSummaryView: NSView {
             } else {
                 primary.update(nil, text: "--"); detail.stringValue = "等待磁盘采样"
             }
+        case .power:
+            let watts = snapshot.flatMap(MenuBarText.freshPower)?.watts
+            powerScale.include(watts)
+            primary.update(watts, text: watts.map { String(format: "%.1f W", $0) } ?? "暂无有效读数", maximum: powerScale.maximum)
+            let energy = details?.energyAvailable == true ? "进程 CPU 能耗为估算值，不含 GPU、磁盘及显示器。" : "当前系统未提供进程 CPU 能耗数据。"
+            detail.stringValue = "供电侧估算\n\(energy)"
         default:
             let battery = details?.battery
             primary.update(battery?.percent, text: battery.map { MenuBarText.percent($0.percent) } ?? (details == nil ? "--" : "无电池"), color: (battery?.percent ?? 100) <= 20 ? .systemRed : .systemTeal)
-            let watts = snapshot.flatMap(MenuBarText.freshPower)?.watts
-            powerScale.include(watts)
-            power?.update(watts, text: watts.map { String(format: "%.1f W", $0) } ?? "暂无有效读数", maximum: powerScale.maximum)
-            let batteryStatus = details == nil ? "正在读取电池信息" : (battery?.statusSummary ?? "无内置电池 · 外接电源")
-            let energy = details?.energyAvailable == true ? "进程 CPU 能耗为估算值，不含 GPU、磁盘及显示器。" : "当前系统未提供进程 CPU 能耗数据。"
-            detail.stringValue = "\(batteryStatus)\n\(energy)"
+            detail.stringValue = details == nil ? "正在读取电池信息" : (battery?.statusSummary.replacingOccurrences(of: " · ", with: "\n") ?? "无内置电池 · 外接电源")
         }
         detail.toolTip = detail.stringValue
     }
@@ -326,16 +309,14 @@ final class ProcessTableView: NSView, NSTableViewDataSource, NSTableViewDelegate
         let filtered = (sample?.processes ?? []).filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) || String($0.identity.pid).contains(query) }
         let descriptor = table.sortDescriptors.first
         rows = Self.sorted(filtered, key: descriptor?.key ?? mode.rawValue, ascending: descriptor?.ascending ?? false)
-        if oldCount != rows.count { table.reloadData() }
-        else {
-            // Reuse the visible cells while live values and sort order change.
-            table.enumerateAvailableRowViews { _, row in
-                guard self.rows.indices.contains(row) else { return }
-                for column in self.table.tableColumns.indices {
-                    if let cell = self.table.view(atColumn: column, row: row, makeIfNecessary: false) as? NSTableCellView,
-                       let field = cell.textField {
-                        self.populate(field, id: self.table.tableColumns[column].identifier, value: self.rows[row])
-                    }
+        if oldCount != rows.count { table.noteNumberOfRowsChanged() }
+        // Reuse the visible cells while live values, process count and sort order change.
+        table.enumerateAvailableRowViews { _, row in
+            guard self.rows.indices.contains(row) else { return }
+            for column in self.table.tableColumns.indices {
+                if let cell = self.table.view(atColumn: column, row: row, makeIfNecessary: false) as? NSTableCellView,
+                   let field = cell.textField {
+                    self.populate(field, id: self.table.tableColumns[column].identifier, value: self.rows[row])
                 }
             }
         }
@@ -410,6 +391,7 @@ final class DiskUsageView: NSView, NSTableViewDataSource, NSTableViewDelegate {
     private var generation = UUID()
     private var automaticScanTimer: Timer?
     private var completedAt: Date?
+    private var scanPolicy = DiskScanPolicy()
     private let queue = DispatchQueue(label: "local.macpulse.disk-scan", qos: .utility)
     var onChooseFolder: (() -> Void)?
     private let compact: Bool
@@ -462,7 +444,7 @@ final class DiskUsageView: NSView, NSTableViewDataSource, NSTableViewDelegate {
     func requestAutomaticScan() {
         automaticScanTimer?.invalidate()
         guard cancellation == nil, completedAt.map({ Date().timeIntervalSince($0) < 60 }) != true else { return }
-        let timer = Timer(timeInterval: 0.2, repeats: false) { [weak self] _ in
+        let timer = Timer(timeInterval: 0.4, repeats: false) { [weak self] _ in
             guard let self else { return }
             self.automaticScanTimer = nil
             guard self.window?.isVisible == true, !self.isHiddenOrHasHiddenAncestor, self.cancellation == nil else { return }
@@ -472,6 +454,10 @@ final class DiskUsageView: NSView, NSTableViewDataSource, NSTableViewDelegate {
         RunLoop.main.add(timer, forMode: .common); RunLoop.main.add(timer, forMode: .eventTracking)
     }
     func cancelPendingAutomaticScan() { automaticScanTimer?.invalidate(); automaticScanTimer = nil }
+    func scanUserSelected(_ directory: URL) {
+        scanPolicy = DiskScanPolicy(selectedRoot: directory)
+        scan(directory)
+    }
     func scan(_ directory: URL) {
         cancelPendingAutomaticScan()
         cancellation?.cancel()
@@ -480,8 +466,9 @@ final class DiskUsageView: NSView, NSTableViewDataSource, NSTableViewDelegate {
         if root != directory { result = nil; rows = []; table.reloadData() }
         root = directory; pathLabel.stringValue = directory.path; pathLabel.toolTip = directory.path
         status.stringValue = "扫描中…"; scanButton.isEnabled = false; cancelButton.isEnabled = true
+        let policy = scanPolicy
         queue.async { [weak self] in
-            let result = DiskUsageScanner.scan(root: directory, cancellation: cancellation) { progress in
+            let result = DiskUsageScanner.scan(root: directory, cancellation: cancellation, policy: policy) { progress in
                 RunLoop.main.perform(inModes: [.default, .eventTracking, .modalPanel]) { [weak self] in if self?.generation == token { self?.update(progress) } }
             }
             RunLoop.main.perform(inModes: [.default, .eventTracking, .modalPanel]) { [weak self] in if self?.generation == token { self?.update(result) } }
@@ -501,7 +488,9 @@ final class DiskUsageView: NSView, NSTableViewDataSource, NSTableViewDelegate {
         if let selected, let index = rows.firstIndex(where: { $0.url == selected }) { table.selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false) }
         else { table.deselectAll(nil) }
         let state = result.cancelled ? "已取消，结果不完整" : (result.finished ? "扫描完成" : "扫描中…")
-        status.stringValue = "\(state) · \(result.visited) 项 · \(memorySize(Double(result.total))) · \(result.skipped) 项无法访问或已跳过"
+        let counts = "\(state) · \(result.visited) 项 · \(memorySize(Double(result.total)))"
+        status.stringValue = counts + (result.protectedItems > 0 ? " · 已跳过 \(result.protectedItems) 项隐私目录" : " · \(result.skipped) 项无法访问或已跳过")
+        status.toolTip = counts + " · 共 \(result.skipped) 项无法访问或已跳过，其中 \(result.protectedItems) 项隐私目录"
         scanButton.isEnabled = result.finished; cancelButton.isEnabled = !result.finished
         if result.finished {
             cancellation = nil
@@ -517,7 +506,7 @@ final class DiskUsageView: NSView, NSTableViewDataSource, NSTableViewDelegate {
         guard let window else { return }
         let panel = NSOpenPanel(); panel.canChooseFiles = false; panel.canChooseDirectories = true
         panel.directoryURL = root; panel.prompt = "扫描"
-        panel.beginSheetModal(for: window) { [weak self] response in if response == .OK, let url = panel.url { self?.scan(url) } }
+        panel.beginSheetModal(for: window) { [weak self] response in if response == .OK, let url = panel.url { self?.scanUserSelected(url) } }
     }
     @objc private func drillDown() {
         guard rows.indices.contains(table.clickedRow) else { return }
@@ -544,7 +533,7 @@ final class DiskUsageView: NSView, NSTableViewDataSource, NSTableViewDelegate {
 
 final class ResourceDashboardView: NSView, NSTabViewDelegate {
     let tabs = NSTabView()
-    private let navigation = NSSegmentedControl(labels: ["总览与设置", "CPU", "内存", "磁盘", "电池与能耗"], trackingMode: .selectOne, target: nil, action: nil)
+    private let navigation = NSSegmentedControl(labels: ["总览与设置", "CPU", "内存", "磁盘", "功率", "电池"], trackingMode: .selectOne, target: nil, action: nil)
     let cpuTable = ProcessTableView(mode: .cpu)
     let memoryTable = ProcessTableView(mode: .memory)
     let energyTable = ProcessTableView(mode: .energy)
@@ -553,7 +542,8 @@ final class ResourceDashboardView: NSView, NSTabViewDelegate {
     private let cpuSummary = NSTextField(labelWithString: "等待 CPU 采样")
     private let memorySummary = MetricSummaryView(kind: .memory)
     private let diskSummary = MetricSummaryView(kind: .disk)
-    private let energySummary = MetricSummaryView(kind: .battery)
+    private let energySummary = MetricSummaryView(kind: .power)
+    private let batterySummary = MetricSummaryView(kind: .battery)
     private var sample: MetricsSnapshot?
     private var details: DetailedSnapshot?
 
@@ -580,7 +570,8 @@ final class ResourceDashboardView: NSView, NSTabViewDelegate {
         addTab("内存", view: page(header: memorySummary, height: memorySummary.preferredHeight, body: memoryTable))
         let diskPage = page(header: diskSummary, height: diskSummary.preferredHeight, body: disk)
         addTab("磁盘", view: diskPage)
-        addTab("电池与能耗", view: page(header: energySummary, height: energySummary.preferredHeight, body: energyTable))
+        addTab("功率", view: page(header: energySummary, height: energySummary.preferredHeight, body: energyTable))
+        addTab("电池", view: page(header: batterySummary, height: batterySummary.preferredHeight, body: NSView()))
         cpuSummary.font = .systemFont(ofSize: 12); cpuSummary.textColor = .secondaryLabelColor
     }
     required init?(coder: NSCoder) { fatalError() }
@@ -623,6 +614,6 @@ final class ResourceDashboardView: NSView, NSTabViewDelegate {
     }
     private func updateSummaries() {
         cpuSummary.stringValue = "CPU 总利用率 \(MenuBarText.percent(sample?.cpu))"
-        for view in [memorySummary, diskSummary, energySummary] { view.update(sample, details: details) }
+        for view in [memorySummary, diskSummary, energySummary, batterySummary] { view.update(sample, details: details) }
     }
 }
