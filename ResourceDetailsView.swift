@@ -167,8 +167,22 @@ final class ProcessTableView: NSView, NSTableViewDataSource, NSTableViewDelegate
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         guard rows.indices.contains(row), let id = tableColumn?.identifier else { return nil }
         let value = rows[row]
-        let field = (table.makeView(withIdentifier: id, owner: self) as? NSTextField) ?? NSTextField(labelWithString: "")
-        field.identifier = id; field.lineBreakMode = .byTruncatingTail
+        let cell = (table.makeView(withIdentifier: id, owner: self) as? NSTableCellView) ?? NSTableCellView()
+        cell.identifier = id
+        if cell.textField == nil {
+            let field = NSTextField(labelWithString: "")
+            field.translatesAutoresizingMaskIntoConstraints = false
+            field.lineBreakMode = .byTruncatingTail
+            field.usesSingleLineMode = true
+            cell.addSubview(field)
+            cell.textField = field
+            NSLayoutConstraint.activate([
+                field.leadingAnchor.constraint(equalTo: cell.leadingAnchor),
+                field.trailingAnchor.constraint(equalTo: cell.trailingAnchor),
+                field.centerYAnchor.constraint(equalTo: cell.centerYAnchor)
+            ])
+        }
+        let field = cell.textField!
         field.font = id.rawValue == "name" ? .systemFont(ofSize: 12) : .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
         field.alignment = id.rawValue == "name" ? .left : .right
         switch id.rawValue {
@@ -182,7 +196,7 @@ final class ProcessTableView: NSView, NSTableViewDataSource, NSTableViewDelegate
         default: break
         }
         field.toolTip = id.rawValue == "name" ? value.path : field.stringValue
-        return field
+        return cell
     }
     @objc private func requestQuit() { confirmTermination(force: false) }
     @objc private func requestForceQuit() { confirmTermination(force: true) }
