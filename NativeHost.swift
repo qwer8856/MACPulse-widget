@@ -120,13 +120,11 @@ final class NativeHostDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         let selected = preferences.metrics
         statusMenuView.updateSelection(selected)
         statusMenuView.stylePicker.style = preferences.menuBarStyle
-        // Keep the status item's anchor stable until the user closes its menu.
-        guard !statusMenuIsOpen else { return }
         let visible = battery == nil ? selected.subtracting([.battery]) : selected
         let title = MenuBarMetric.title(for: visible, snapshot: snapshot, battery: battery)
         let presentation = MenuBarPresentation(style: preferences.menuBarStyle, metrics: visible, snapshot: snapshot, battery: battery, updateAvailable: updateChecker.state.available)
         let updateText = updateChecker.state.available ? "，有新版本" : ""
-        statusItem.length = presentation.width
+        if statusItem.length != presentation.width { statusItem.length = presentation.width }
         statusItem.button?.attributedTitle = presentation.title
         statusItem.button?.image = presentation.image
         statusItem.button?.setAccessibilityLabel(title.isEmpty && updateText.isEmpty ? "系统状态" : "系统状态，\(title)\(updateText)")

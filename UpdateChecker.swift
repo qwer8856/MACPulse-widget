@@ -122,6 +122,7 @@ final class UpdateStatusView: NSView {
     let current = NSTextField(labelWithString: "")
     let latest = NSTextField(labelWithString: "")
     let status = NSTextField(labelWithString: "尚未检查更新")
+    let compactVersion = NSTextField(labelWithString: "")
     let checkButton = NSButton()
     let downloadButton = NSButton()
     var onCheck: (() -> Void)?
@@ -135,6 +136,11 @@ final class UpdateStatusView: NSView {
             field.lineBreakMode = .byTruncatingTail
         }
         latest.alignment = .right
+        compactVersion.font = .monospacedDigitSystemFont(ofSize: 10, weight: .regular)
+        compactVersion.alignment = .center
+        compactVersion.lineBreakMode = .byTruncatingMiddle
+        compactVersion.setContentHuggingPriority(.defaultLow, for: .horizontal)
+        compactVersion.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         for (button, symbol, title, action) in [(checkButton, "arrow.triangle.2.circlepath", "检查更新", #selector(check)), (downloadButton, "arrow.down.to.line", "下载新版本", #selector(download))] {
             button.image = NSImage(systemSymbolName: symbol, accessibilityDescription: title)
             button.imagePosition = .imageOnly; button.bezelStyle = .rounded
@@ -172,7 +178,13 @@ final class UpdateStatusView: NSView {
         latest.textColor = state.available ? .systemBlue : .secondaryLabelColor
         status.stringValue = state.message
         status.textColor = state.available ? .systemBlue : .secondaryLabelColor
+        compactVersion.stringValue = state.available ? state.currentVersion + " → " + (state.release?.version.text ?? "--") : "v" + state.currentVersion
+        compactVersion.textColor = state.phase == .failed ? .systemOrange : (state.available ? .systemBlue : .secondaryLabelColor)
+        compactVersion.toolTip = current.stringValue + "\n" + latest.stringValue + "\n" + state.message
+        compactVersion.setAccessibilityLabel(compactVersion.toolTip)
         current.toolTip = current.stringValue; latest.toolTip = latest.stringValue; status.toolTip = state.message
+        checkButton.toolTip = "检查更新：" + state.message
+        checkButton.image = NSImage(systemSymbolName: state.phase == .failed ? "exclamationmark.arrow.triangle.2.circlepath" : "arrow.triangle.2.circlepath", accessibilityDescription: "检查更新") ?? NSImage(systemSymbolName: "arrow.triangle.2.circlepath", accessibilityDescription: "检查更新")
         checkButton.isEnabled = state.phase != .checking
         downloadButton.isEnabled = state.available
     }
