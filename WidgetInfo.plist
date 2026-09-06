@@ -8,8 +8,8 @@
     <key>CFBundleExecutable</key><string>SystemStatusWidget</string>
     <key>CFBundleIdentifier</key><string>local.macpulse.monitor.widget</string>
     <key>CFBundlePackageType</key><string>XPC!</string>
-    <key>CFBundleShortVersionString</key><string>3.6.0</string>
-    <key>CFBundleVersion</key><string>21</string>
+    <key>CFBundleShortVersionString</key><string>3.7.0</string>
+    <key>CFBundleVersion</key><string>22</string>
     <key>CFBundleSupportedPlatforms</key><array><string>MacOSX</string></array>
     <key>LSMinimumSystemVersion</key><string>14.0</string>
     <key>NSExtension</key>

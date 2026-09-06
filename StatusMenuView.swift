@@ -3,10 +3,10 @@ import AppKit
 final class StatusMenuController: NSObject, NSMenuDelegate {
     let menu = NSMenu()
     let header = NSView(frame: NSRect(x: 0, y: 0, width: 380, height: 32))
-    let updates = UpdateStatusView(frame: NSRect(x: 0, y: 0, width: 352, height: 66))
+    let updates = UpdateStatusView(frame: NSRect(x: 0, y: 0, width: 352, height: 50), includesControls: false)
     private let timestamp = NSTextField(labelWithString: "--:--:--")
     private let pressure = NSTextField(labelWithString: "压力未知")
-    private let options = StatusMenuOptionsView()
+    private lazy var options = StatusMenuOptionsView(checkButton: updates.checkButton, downloadButton: updates.downloadButton)
     private(set) var items: [StatusDetail: NSMenuItem] = [:]
     private(set) var panels: [StatusDetail: StatusDetailView] = [:]
     private var snapshot: MetricsSnapshot?
@@ -16,8 +16,10 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
     private var highlightTimer: Timer?
     var view: NSView { options }
     var toggles: [NSButton] { options.toggles }
+    var stylePicker: MenuBarStylePicker { options.stylePicker }
     var cores: CoreUsageView { panels[.cpu]!.cores }
     var onSelection: ((Set<MenuBarMetric>) -> Void)?
+    var onStyleChanged: ((MenuBarStyle) -> Void)?
     var onOpenMonitor: ((Int) -> Void)?
     var onDisable: (() -> Void)?
     var onQuit: (() -> Void)?
@@ -57,12 +59,13 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         NSLayoutConstraint.activate([pressure.leadingAnchor.constraint(equalTo: pressureView.leadingAnchor, constant: 14), pressure.trailingAnchor.constraint(equalTo: pressureView.trailingAnchor, constant: -14), pressure.centerYAnchor.constraint(equalTo: pressureView.centerYAnchor)])
         let pressureItem = NSMenuItem(); pressureItem.view = pressureView; pressureItem.isEnabled = false; menu.addItem(pressureItem)
         let footer = NSMenuItem(); footer.view = options; menu.addItem(footer)
-        let updateContainer = NSView(frame: NSRect(x: 0, y: 0, width: 380, height: 76))
+        let updateContainer = NSView(frame: NSRect(x: 0, y: 0, width: 380, height: 60))
         updateContainer.addSubview(updates)
         updates.frame.origin = NSPoint(x: 14, y: 10)
         updates.autoresizingMask = [.width]
         let updateItem = NSMenuItem(); updateItem.view = updateContainer; menu.addItem(updateItem)
         options.onSelection = { [weak self] in self?.onSelection?($0) }
+        options.stylePicker.onChange = { [weak self] in self?.onStyleChanged?($0) }
         options.onOpenMonitor = { [weak self] in self?.menu.cancelTracking(); self?.onOpenMonitor?(0) }
         options.onDisable = { [weak self] in self?.menu.cancelTracking(); self?.onDisable?() }
         options.onQuit = { [weak self] in self?.menu.cancelTracking(); self?.onQuit?() }
@@ -159,31 +162,43 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
 
 private final class StatusMenuOptionsView: NSView {
     let toggles = MenuBarMetric.allCases.map { NSButton(checkboxWithTitle: $0.label, target: nil, action: nil) }
+    let stylePicker = MenuBarStylePicker()
     var onSelection: ((Set<MenuBarMetric>) -> Void)?
     var onOpenMonitor: (() -> Void)?
     var onDisable: (() -> Void)?
     var onQuit: (() -> Void)?
 
-    init() {
-        super.init(frame: NSRect(x: 0, y: 0, width: 380, height: 116))
+    init(checkButton: NSButton, downloadButton: NSButton) {
+        super.init(frame: NSRect(x: 0, y: 0, width: 380, height: 166))
         let label = NSTextField(labelWithString: "显示内容")
         label.font = .systemFont(ofSize: 11, weight: .medium)
+        let styleLabel = NSTextField(labelWithString: "菜单栏样式")
+        styleLabel.font = .systemFont(ofSize: 11, weight: .medium)
         let choices = NSStackView(views: toggles)
         choices.orientation = .horizontal; choices.distribution = .fillEqually; choices.spacing = 8
         for toggle in toggles { toggle.target = self; toggle.action = #selector(changeSelection) }
-        let open = NSButton(title: "资源监视", target: self, action: #selector(openMonitor))
+        let open = NSButton(title: "资源面板", target: self, action: #selector(openMonitor))
         open.image = NSImage(systemSymbolName: "chart.bar.xaxis", accessibilityDescription: nil)
         open.imagePosition = .imageLeading; open.bezelStyle = .rounded
         let hide = tool("eye.slash", "关闭菜单栏显示", #selector(disable))
         let quit = tool("power", "退出系统状态", #selector(quit))
-        let commands = NSStackView(views: [open, hide, quit])
-        commands.orientation = .horizontal; commands.spacing = 8
-        for view in [label, choices, commands] { view.translatesAutoresizingMaskIntoConstraints = false; addSubview(view) }
+        checkButton.title = "检查更新"; checkButton.imagePosition = .imageLeading
+        checkButton.font = .systemFont(ofSize: 11)
+        checkButton.widthAnchor.constraint(equalToConstant: 90).isActive = true
+        downloadButton.widthAnchor.constraint(equalToConstant: 32).isActive = true
+        let spacer = NSView()
+        spacer.widthAnchor.constraint(greaterThanOrEqualToConstant: 0).isActive = true
+        let commands = NSStackView(views: [open, hide, quit, spacer, checkButton, downloadButton])
+        commands.orientation = .horizontal; commands.spacing = 6; commands.alignment = .centerY
+        for view in [label, choices, styleLabel, stylePicker, commands] { view.translatesAutoresizingMaskIntoConstraints = false; addSubview(view) }
         NSLayoutConstraint.activate([
             label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14), label.topAnchor.constraint(equalTo: topAnchor, constant: 8),
             choices.topAnchor.constraint(equalTo: label.bottomAnchor, constant: 10), choices.leadingAnchor.constraint(equalTo: label.leadingAnchor),
             choices.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14), choices.heightAnchor.constraint(equalToConstant: 22),
-            commands.topAnchor.constraint(equalTo: choices.bottomAnchor, constant: 16), commands.leadingAnchor.constraint(equalTo: label.leadingAnchor), commands.trailingAnchor.constraint(equalTo: choices.trailingAnchor)
+            styleLabel.topAnchor.constraint(equalTo: choices.bottomAnchor, constant: 10), styleLabel.leadingAnchor.constraint(equalTo: label.leadingAnchor),
+            stylePicker.topAnchor.constraint(equalTo: styleLabel.bottomAnchor, constant: 6), stylePicker.leadingAnchor.constraint(equalTo: label.leadingAnchor),
+            stylePicker.trailingAnchor.constraint(equalTo: choices.trailingAnchor), stylePicker.heightAnchor.constraint(equalToConstant: 24),
+            commands.topAnchor.constraint(equalTo: stylePicker.bottomAnchor, constant: 12), commands.leadingAnchor.constraint(equalTo: label.leadingAnchor), commands.trailingAnchor.constraint(equalTo: choices.trailingAnchor)
         ])
     }
     required init?(coder: NSCoder) { fatalError() }

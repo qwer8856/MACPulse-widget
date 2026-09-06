@@ -127,7 +127,7 @@ final class UpdateStatusView: NSView {
     var onCheck: (() -> Void)?
     var onDownload: (() -> Void)?
 
-    override init(frame: NSRect) {
+    init(frame: NSRect, includesControls: Bool = true) {
         super.init(frame: frame)
         let separator = NSBox(); separator.boxType = .separator
         for field in [current, latest, status] {
@@ -141,19 +141,28 @@ final class UpdateStatusView: NSView {
             button.target = self; button.action = action; button.toolTip = title
             button.setAccessibilityLabel(title)
         }
-        for view in [separator, current, latest, status, checkButton, downloadButton] { view.translatesAutoresizingMaskIntoConstraints = false; addSubview(view) }
+        for view in [separator, current, latest, status] { view.translatesAutoresizingMaskIntoConstraints = false; addSubview(view) }
         NSLayoutConstraint.activate([
             separator.topAnchor.constraint(equalTo: topAnchor), separator.leadingAnchor.constraint(equalTo: leadingAnchor), separator.trailingAnchor.constraint(equalTo: trailingAnchor),
             current.leadingAnchor.constraint(equalTo: leadingAnchor), current.topAnchor.constraint(equalTo: topAnchor, constant: 8),
             latest.trailingAnchor.constraint(equalTo: trailingAnchor), latest.centerYAnchor.constraint(equalTo: current.centerYAnchor),
             current.trailingAnchor.constraint(equalTo: centerXAnchor, constant: -4), latest.leadingAnchor.constraint(equalTo: centerXAnchor, constant: 4),
-            status.leadingAnchor.constraint(equalTo: leadingAnchor), status.centerYAnchor.constraint(equalTo: checkButton.centerYAnchor),
-            status.trailingAnchor.constraint(equalTo: checkButton.leadingAnchor, constant: -8),
-            downloadButton.trailingAnchor.constraint(equalTo: trailingAnchor), downloadButton.widthAnchor.constraint(equalToConstant: 32),
-            downloadButton.topAnchor.constraint(equalTo: current.bottomAnchor, constant: 6), downloadButton.heightAnchor.constraint(equalToConstant: 24),
-            checkButton.trailingAnchor.constraint(equalTo: downloadButton.leadingAnchor, constant: -6), checkButton.widthAnchor.constraint(equalToConstant: 32),
-            checkButton.centerYAnchor.constraint(equalTo: downloadButton.centerYAnchor), checkButton.heightAnchor.constraint(equalToConstant: 24)
+            status.leadingAnchor.constraint(equalTo: leadingAnchor)
         ])
+        if includesControls {
+            for button in [checkButton, downloadButton] { button.translatesAutoresizingMaskIntoConstraints = false; addSubview(button) }
+            NSLayoutConstraint.activate([
+                status.centerYAnchor.constraint(equalTo: checkButton.centerYAnchor), status.trailingAnchor.constraint(equalTo: checkButton.leadingAnchor, constant: -8),
+                downloadButton.trailingAnchor.constraint(equalTo: trailingAnchor), downloadButton.widthAnchor.constraint(equalToConstant: 32),
+                downloadButton.topAnchor.constraint(equalTo: current.bottomAnchor, constant: 6), downloadButton.heightAnchor.constraint(equalToConstant: 24),
+                checkButton.trailingAnchor.constraint(equalTo: downloadButton.leadingAnchor, constant: -6), checkButton.widthAnchor.constraint(equalToConstant: 32),
+                checkButton.centerYAnchor.constraint(equalTo: downloadButton.centerYAnchor), checkButton.heightAnchor.constraint(equalToConstant: 24)
+            ])
+        } else {
+            NSLayoutConstraint.activate([
+                status.topAnchor.constraint(equalTo: current.bottomAnchor, constant: 7), status.trailingAnchor.constraint(equalTo: trailingAnchor)
+            ])
+        }
         update(UpdateState(currentVersion: UpdateChecker.installedVersion))
     }
     required init?(coder: NSCoder) { fatalError() }

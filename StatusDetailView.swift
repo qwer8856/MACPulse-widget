@@ -46,7 +46,7 @@ final class StatusDetailView: NSView {
         title.font = .systemFont(ofSize: 13, weight: .semibold)
         summary.font = .systemFont(ofSize: 11)
         summary.textColor = .secondaryLabelColor
-        let open = NSButton(title: "资源监视", target: self, action: #selector(openMonitor))
+        let open = NSButton(title: "资源面板", target: self, action: #selector(openMonitor))
         open.image = NSImage(systemSymbolName: "chart.bar.xaxis", accessibilityDescription: nil)
         open.imagePosition = .imageLeading; open.bezelStyle = .rounded
         let header: NSView = metricSummary ?? summary

@@ -258,9 +258,8 @@ private func centeredTableCell(in table: NSTableView, identifier: NSUserInterfac
     return cell
 }
 
-final class ProcessTableView: NSView, NSTableViewDataSource, NSTableViewDelegate, NSSearchFieldDelegate {
+final class ProcessTableView: NSView, NSTableViewDataSource, NSTableViewDelegate {
     let table = NSTableView()
-    let search = NSSearchField()
     private let status = NSTextField(labelWithString: "等待采样")
     private var quitButton: NSButton!
     private var forceButton: NSButton!
@@ -275,8 +274,6 @@ final class ProcessTableView: NSView, NSTableViewDataSource, NSTableViewDelegate
         self.allowsTermination = allowsTermination
         self.compact = compact
         super.init(frame: .zero)
-        search.placeholderString = "搜索进程"
-        search.delegate = self
         quitButton = toolButton("xmark.circle", "退出所选进程", target: self, action: #selector(requestQuit))
         forceButton = toolButton("exclamationmark.octagon", "强制退出所选进程", target: self, action: #selector(requestForceQuit))
         quitButton.isEnabled = false; forceButton.isEnabled = false
@@ -312,12 +309,12 @@ final class ProcessTableView: NSView, NSTableViewDataSource, NSTableViewDelegate
         let scroll = NSScrollView()
         scroll.documentView = table; scroll.hasVerticalScroller = true; scroll.hasHorizontalScroller = !compact
         scroll.borderType = .bezelBorder
-        for view in [search, quitButton!, forceButton!, scroll, status] { view.translatesAutoresizingMaskIntoConstraints = false; addSubview(view) }
+        for view in [quitButton!, forceButton!, scroll, status] { view.translatesAutoresizingMaskIntoConstraints = false; addSubview(view) }
         NSLayoutConstraint.activate([
-            search.leadingAnchor.constraint(equalTo: leadingAnchor), search.topAnchor.constraint(equalTo: topAnchor), search.widthAnchor.constraint(equalToConstant: 240),
-            forceButton.trailingAnchor.constraint(equalTo: trailingAnchor), forceButton.centerYAnchor.constraint(equalTo: search.centerYAnchor),
-            quitButton.trailingAnchor.constraint(equalTo: forceButton.leadingAnchor, constant: -8), quitButton.centerYAnchor.constraint(equalTo: search.centerYAnchor),
-            scroll.topAnchor.constraint(equalTo: search.bottomAnchor, constant: 10), scroll.leadingAnchor.constraint(equalTo: leadingAnchor), scroll.trailingAnchor.constraint(equalTo: trailingAnchor),
+            forceButton.trailingAnchor.constraint(equalTo: trailingAnchor), forceButton.topAnchor.constraint(equalTo: topAnchor),
+            quitButton.trailingAnchor.constraint(equalTo: forceButton.leadingAnchor, constant: -8), quitButton.centerYAnchor.constraint(equalTo: forceButton.centerYAnchor),
+            scroll.topAnchor.constraint(equalTo: allowsTermination ? forceButton.bottomAnchor : topAnchor, constant: allowsTermination ? 10 : 0),
+            scroll.leadingAnchor.constraint(equalTo: leadingAnchor), scroll.trailingAnchor.constraint(equalTo: trailingAnchor),
             status.topAnchor.constraint(equalTo: scroll.bottomAnchor, constant: 7), status.leadingAnchor.constraint(equalTo: leadingAnchor), status.trailingAnchor.constraint(equalTo: trailingAnchor), status.bottomAnchor.constraint(equalTo: bottomAnchor)
         ])
     }
@@ -360,10 +357,8 @@ final class ProcessTableView: NSView, NSTableViewDataSource, NSTableViewDelegate
     private func reload() {
         let identity = selected?.identity
         let oldCount = rows.count
-        let query = search.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
-        let filtered = (sample?.processes ?? []).filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) || String($0.identity.pid).contains(query) }
         let descriptor = table.sortDescriptors.first
-        rows = Self.sorted(filtered, key: descriptor?.key ?? mode.rawValue, ascending: descriptor?.ascending ?? false)
+        rows = Self.sorted(sample?.processes ?? [], key: descriptor?.key ?? mode.rawValue, ascending: descriptor?.ascending ?? false)
         if oldCount != rows.count { table.noteNumberOfRowsChanged() }
         // Reuse the visible cells while live values, process count and sort order change.
         table.enumerateAvailableRowViews { _, row in
@@ -389,7 +384,6 @@ final class ProcessTableView: NSView, NSTableViewDataSource, NSTableViewDelegate
     }
     func numberOfRows(in tableView: NSTableView) -> Int { rows.count }
     func tableView(_ tableView: NSTableView, sortDescriptorsDidChange oldDescriptors: [NSSortDescriptor]) { reload() }
-    func controlTextDidChange(_ obj: Notification) { reload() }
     func tableViewSelectionDidChange(_ notification: Notification) { updateSelection() }
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         guard rows.indices.contains(row), let id = tableColumn?.identifier else { return nil }

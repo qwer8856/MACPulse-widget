@@ -71,6 +71,11 @@ final class MonitorPreferences {
         set { defaults.set(newValue, forKey: "menuBarEnabled") }
     }
 
+    var menuBarStyle: MenuBarStyle {
+        get { defaults.string(forKey: "menuBarStyle").flatMap(MenuBarStyle.init(rawValue:)) ?? .standard }
+        set { defaults.set(newValue.rawValue, forKey: "menuBarStyle") }
+    }
+
     var metrics: Set<MenuBarMetric> {
         get {
             if let stored = defaults.stringArray(forKey: "menuBarMetrics") {
@@ -93,9 +98,11 @@ final class ResourceMonitorContentView: NSView {
     let metricsView = MenuBarContentView()
     let menuBarToggle = NSButton(checkboxWithTitle: "在菜单栏显示", target: nil, action: nil)
     let metricToggles = MenuBarMetric.allCases.map { NSButton(checkboxWithTitle: $0.label, target: nil, action: nil) }
+    let stylePicker = MenuBarStylePicker()
     let loginItemToggle = NSButton(checkboxWithTitle: "登录时自动启动", target: nil, action: nil)
     var onMenuBarChanged: ((Bool) -> Void)?
     var onMetricsChanged: ((Set<MenuBarMetric>) -> Void)?
+    var onStyleChanged: ((MenuBarStyle) -> Void)?
     var onLoginItemToggle: (() -> Void)?
     var onLoginItemSettings: (() -> Void)?
     var onActivityMonitor: (() -> Void)?
@@ -112,6 +119,9 @@ final class ResourceMonitorContentView: NSView {
         toolsTitle.font = .systemFont(ofSize: 13, weight: .semibold)
         let label = NSTextField(labelWithString: "显示内容")
         label.font = .systemFont(ofSize: 12)
+        let styleLabel = NSTextField(labelWithString: "菜单栏样式")
+        styleLabel.font = .systemFont(ofSize: 12)
+        stylePicker.onChange = { [weak self] in self?.onStyleChanged?($0) }
         let choices = NSStackView(views: metricToggles)
         choices.orientation = .horizontal
         choices.distribution = .fillEqually
@@ -133,7 +143,7 @@ final class ResourceMonitorContentView: NSView {
         activity.bezelStyle = .rounded
         activity.image = NSImage(systemSymbolName: "waveform.path.ecg", accessibilityDescription: nil)
         activity.imagePosition = .imageLeading
-        for view in [metricsView, separator, settingsTitle, menuBarToggle, label, choices, loginSeparator, loginItemToggle, loginSettings, toolsTitle, activity, updates] {
+        for view in [metricsView, separator, settingsTitle, menuBarToggle, label, choices, styleLabel, stylePicker, loginSeparator, loginItemToggle, loginSettings, toolsTitle, activity, updates] {
             view.translatesAutoresizingMaskIntoConstraints = false
             addSubview(view)
         }
@@ -149,28 +159,33 @@ final class ResourceMonitorContentView: NSView {
             settingsTitle.leadingAnchor.constraint(equalTo: separator.trailingAnchor, constant: 24),
             settingsTitle.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
             settingsTitle.topAnchor.constraint(equalTo: topAnchor, constant: 12),
-            menuBarToggle.topAnchor.constraint(equalTo: settingsTitle.bottomAnchor, constant: 24),
+            menuBarToggle.topAnchor.constraint(equalTo: settingsTitle.bottomAnchor, constant: 16),
             menuBarToggle.leadingAnchor.constraint(equalTo: settingsTitle.leadingAnchor),
             label.leadingAnchor.constraint(equalTo: settingsTitle.leadingAnchor),
-            label.topAnchor.constraint(equalTo: menuBarToggle.bottomAnchor, constant: 16),
+            label.topAnchor.constraint(equalTo: menuBarToggle.bottomAnchor, constant: 12),
             choices.topAnchor.constraint(equalTo: label.bottomAnchor, constant: 8),
             choices.leadingAnchor.constraint(equalTo: settingsTitle.leadingAnchor),
             choices.trailingAnchor.constraint(equalTo: settingsTitle.trailingAnchor),
             choices.heightAnchor.constraint(equalToConstant: 20),
-            loginSeparator.topAnchor.constraint(equalTo: choices.bottomAnchor, constant: 24),
+            styleLabel.leadingAnchor.constraint(equalTo: settingsTitle.leadingAnchor),
+            styleLabel.topAnchor.constraint(equalTo: choices.bottomAnchor, constant: 12),
+            stylePicker.topAnchor.constraint(equalTo: styleLabel.bottomAnchor, constant: 6),
+            stylePicker.leadingAnchor.constraint(equalTo: settingsTitle.leadingAnchor), stylePicker.trailingAnchor.constraint(equalTo: settingsTitle.trailingAnchor),
+            stylePicker.heightAnchor.constraint(equalToConstant: 24),
+            loginSeparator.topAnchor.constraint(equalTo: stylePicker.bottomAnchor, constant: 14),
             loginSeparator.leadingAnchor.constraint(equalTo: settingsTitle.leadingAnchor),
             loginSeparator.trailingAnchor.constraint(equalTo: settingsTitle.trailingAnchor),
             loginItemToggle.leadingAnchor.constraint(equalTo: settingsTitle.leadingAnchor),
-            loginItemToggle.topAnchor.constraint(equalTo: loginSeparator.bottomAnchor, constant: 20),
+            loginItemToggle.topAnchor.constraint(equalTo: loginSeparator.bottomAnchor, constant: 12),
             loginItemToggle.trailingAnchor.constraint(lessThanOrEqualTo: loginSettings.leadingAnchor, constant: -8),
             loginSettings.trailingAnchor.constraint(equalTo: settingsTitle.trailingAnchor),
             loginSettings.centerYAnchor.constraint(equalTo: loginItemToggle.centerYAnchor),
             loginSettings.widthAnchor.constraint(equalToConstant: 44),
             toolsTitle.leadingAnchor.constraint(equalTo: settingsTitle.leadingAnchor),
-            toolsTitle.topAnchor.constraint(equalTo: loginItemToggle.bottomAnchor, constant: 36),
+            toolsTitle.topAnchor.constraint(equalTo: loginItemToggle.bottomAnchor, constant: 20),
             activity.leadingAnchor.constraint(equalTo: settingsTitle.leadingAnchor),
-            activity.topAnchor.constraint(equalTo: toolsTitle.bottomAnchor, constant: 12),
-            updates.topAnchor.constraint(equalTo: activity.bottomAnchor, constant: 10),
+            activity.topAnchor.constraint(equalTo: toolsTitle.bottomAnchor, constant: 10),
+            updates.topAnchor.constraint(equalTo: activity.bottomAnchor, constant: 8),
             updates.leadingAnchor.constraint(equalTo: settingsTitle.leadingAnchor), updates.trailingAnchor.constraint(equalTo: settingsTitle.trailingAnchor),
             updates.heightAnchor.constraint(equalToConstant: 66), updates.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -8)
         ])
@@ -180,6 +195,7 @@ final class ResourceMonitorContentView: NSView {
 
     func updatePreferences(_ preferences: MonitorPreferences) {
         menuBarToggle.state = preferences.menuBarEnabled ? .on : .off
+        stylePicker.style = preferences.menuBarStyle
         for (index, metric) in MenuBarMetric.allCases.enumerated() {
             metricToggles[index].state = preferences.metrics.contains(metric) ? .on : .off
         }
