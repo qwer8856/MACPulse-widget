@@ -89,6 +89,7 @@ final class MonitorPreferences {
 }
 
 final class ResourceMonitorContentView: NSView {
+    let updates = UpdateStatusView(frame: .zero)
     let metricsView = MenuBarContentView()
     let menuBarToggle = NSButton(checkboxWithTitle: "在菜单栏显示", target: nil, action: nil)
     let metricToggles = MenuBarMetric.allCases.map { NSButton(checkboxWithTitle: $0.label, target: nil, action: nil) }
@@ -132,7 +133,7 @@ final class ResourceMonitorContentView: NSView {
         activity.bezelStyle = .rounded
         activity.image = NSImage(systemSymbolName: "waveform.path.ecg", accessibilityDescription: nil)
         activity.imagePosition = .imageLeading
-        for view in [metricsView, separator, settingsTitle, menuBarToggle, label, choices, loginSeparator, loginItemToggle, loginSettings, toolsTitle, activity] {
+        for view in [metricsView, separator, settingsTitle, menuBarToggle, label, choices, loginSeparator, loginItemToggle, loginSettings, toolsTitle, activity, updates] {
             view.translatesAutoresizingMaskIntoConstraints = false
             addSubview(view)
         }
@@ -169,7 +170,9 @@ final class ResourceMonitorContentView: NSView {
             toolsTitle.topAnchor.constraint(equalTo: loginItemToggle.bottomAnchor, constant: 36),
             activity.leadingAnchor.constraint(equalTo: settingsTitle.leadingAnchor),
             activity.topAnchor.constraint(equalTo: toolsTitle.bottomAnchor, constant: 12),
-            activity.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -14)
+            updates.topAnchor.constraint(equalTo: activity.bottomAnchor, constant: 10),
+            updates.leadingAnchor.constraint(equalTo: settingsTitle.leadingAnchor), updates.trailingAnchor.constraint(equalTo: settingsTitle.trailingAnchor),
+            updates.heightAnchor.constraint(equalToConstant: 66), updates.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -8)
         ])
     }
 

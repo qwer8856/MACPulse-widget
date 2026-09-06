@@ -3,6 +3,7 @@ import AppKit
 final class StatusMenuController: NSObject, NSMenuDelegate {
     let menu = NSMenu()
     let header = NSView(frame: NSRect(x: 0, y: 0, width: 380, height: 32))
+    let updates = UpdateStatusView(frame: NSRect(x: 0, y: 0, width: 352, height: 66))
     private let timestamp = NSTextField(labelWithString: "--:--:--")
     private let pressure = NSTextField(labelWithString: "压力未知")
     private let options = StatusMenuOptionsView()
@@ -56,6 +57,11 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         NSLayoutConstraint.activate([pressure.leadingAnchor.constraint(equalTo: pressureView.leadingAnchor, constant: 14), pressure.trailingAnchor.constraint(equalTo: pressureView.trailingAnchor, constant: -14), pressure.centerYAnchor.constraint(equalTo: pressureView.centerYAnchor)])
         let pressureItem = NSMenuItem(); pressureItem.view = pressureView; pressureItem.isEnabled = false; menu.addItem(pressureItem)
         let footer = NSMenuItem(); footer.view = options; menu.addItem(footer)
+        let updateContainer = NSView(frame: NSRect(x: 0, y: 0, width: 380, height: 76))
+        updateContainer.addSubview(updates)
+        updates.frame.origin = NSPoint(x: 14, y: 10)
+        updates.autoresizingMask = [.width]
+        let updateItem = NSMenuItem(); updateItem.view = updateContainer; menu.addItem(updateItem)
         options.onSelection = { [weak self] in self?.onSelection?($0) }
         options.onOpenMonitor = { [weak self] in self?.menu.cancelTracking(); self?.onOpenMonitor?(0) }
         options.onDisable = { [weak self] in self?.menu.cancelTracking(); self?.onDisable?() }

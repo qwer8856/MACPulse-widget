@@ -2,13 +2,13 @@
 
 原生 macOS 资源监视、可选菜单栏监控与桌面小组件。查看各核心 CPU、进程内存、磁盘容量、电池与进程 CPU 能耗，并由用户选择退出进程。资源监视使用普通窗口，不会置顶。
 
-当前版本：**3.5.1**。安装后的应用和小组件名称均为 **“系统状态”**。
+当前版本：**3.6.0**。安装后的应用和小组件名称均为 **“系统状态”**。
 
 ## 下载安装
 
-**[下载安装包：MacPulse Widget 3.5.1（M 系列 Mac）](https://github.com/qwer8856/MACPulse-widget/releases/download/v3.5.1/MACPulse-Widget-v3.5.1-macOS-arm64.zip)**
+**[下载安装包：MacPulse Widget 3.6.0（M 系列 Mac）](https://github.com/qwer8856/MACPulse-widget/releases/download/v3.6.0/MACPulse-Widget-v3.6.0-macOS-arm64.zip)**
 
-[版本发布页与校验文件](https://github.com/qwer8856/MACPulse-widget/releases/tag/v3.5.1)
+[版本发布页与校验文件](https://github.com/qwer8856/MACPulse-widget/releases/tag/v3.6.0)
 
 需要 Apple Silicon Mac（M 系列）和 macOS 14 或更新版本。
 
@@ -21,6 +21,14 @@
 更新时先退出“系统状态”，下载新版替换“应用程序”中的旧版并启动。相同应用与小组件标识通常可保留原有桌面小组件和显示设置。
 
 当前安装包使用本地临时签名，未经 Apple 开发者签名和公证，首次打开可能被 macOS 安全策略拦截。仅在本机验证过，其他机型的功率数据支持情况可能不同。
+
+## 检查更新
+
+启动应用后会在后台检查一次 GitHub 最新正式发布版本。发现新版本时，已启用的顶部菜单栏显示更新图标和“有新版本”；展开菜单可查看当前版本和新版本号。资源窗口的“总览与设置”也显示相同信息。未开启菜单栏时仍保留用户的显示选择，不会强制开启常驻。
+
+点击循环箭头可手动检查，点击下载图标打开对应的 Releases 页面，下载并替换应用。检查更新不会自动安装。正在检查、已是最新版本、网络失败和检查频率受限均会显示状态，失败不会弹窗或影响资源监控。
+
+更新检查仅向 GitHub 公开发布接口请求版本信息，不上传 CPU、内存、进程、电池或用户文件数据。每次启动检查一次，运行期间不定时轮询。
 
 ## 资源监视
 
@@ -100,7 +108,7 @@ MacBook 电池状态区分放电、正在充电、已充满和外接电源未充
 
 进程能耗依赖系统和硬件支持，不支持时显示 `--`。无内置电池的桌面 Mac 显示“无内置电池”；电池时间和健康信息以系统可提供的数据为准。本机为无内置电池的 Mac，笔记本电池解析使用样本测试，尚未在真实笔记本上验证充放电状态。
 
-程序不联网、不记录运行日志，不需要辅助功能、录屏或用户目录访问权限。
+资源监控在本地运行，不记录运行日志，不需要辅助功能、录屏或用户目录访问权限；检查更新时访问 GitHub，点击下载时打开浏览器。
 
 ## 示例图片
 
@@ -125,6 +133,15 @@ MacBook 电池状态区分放电、正在充电、已充满和外接电源未充
 
 <img src="docs/images/menu-light.png" width="380" alt="主菜单每个指标右侧都有原生展开箭头">
 <img src="docs/images/menu-dark.png" width="380" alt="深色菜单栏详情">
+
+### 更新提示
+
+以下使用模拟新版本展示更新提示，实际版本以 Releases 为准。
+
+<img src="docs/images/update-menu.png" width="380" alt="更新提示、当前版本、新版本和检查与下载按钮">
+<img src="docs/images/update-settings.png" width="700" alt="资源窗口中的版本更新信息">
+
+### 电池显示
 
 <img src="docs/images/menu-battery-option.png" width="380" alt="MacBook 电池图标与剩余百分比，显示内容支持五项任意组合">
 <img src="docs/images/status-battery.png" width="367" alt="顶部菜单栏的电池充电图标与剩余电量百分比">

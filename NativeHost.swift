@@ -11,6 +11,7 @@ final class NativeHostDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
     private let monitor = LiveMetricsMonitor()
     private let detailMonitor = DetailedMonitor()
     private let loginItem = LoginItemController()
+    private let updateChecker: UpdateChecker
     private var launchedAtLogin = false
     private var snapshot: MetricsSnapshot?
     private var battery: BatteryMetric?
@@ -18,8 +19,9 @@ final class NativeHostDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
     private var statusMenuIsOpen = false
     private var resourceWindowNeedsSampling = false
 
-    init(defaults: UserDefaults = .standard) {
+    init(defaults: UserDefaults = .standard, updateChecker: UpdateChecker = UpdateChecker()) {
         preferences = MonitorPreferences(defaults: defaults)
+        self.updateChecker = updateChecker
         super.init()
     }
 
@@ -35,6 +37,15 @@ final class NativeHostDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         }
         if CommandLine.arguments.contains("--widget-status") {
             reportConfigurations()
+            return
+        }
+        if CommandLine.arguments.contains("--update-status") {
+            updateChecker.onChange = { state in
+                guard state.phase != .checking else { return }
+                print("Current: \(state.currentVersion); latest: \(state.release?.version.text ?? "--"); \(state.message)")
+                NSApp.terminate(nil)
+            }
+            updateChecker.check()
             return
         }
         configureApplicationMenu()
@@ -58,6 +69,12 @@ final class NativeHostDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         }
         monitor.onBatterySample = { [weak self] battery in self?.updateBattery(battery) }
         monitor.start()
+        updateChecker.onChange = { [weak self] state in
+            self?.statusMenuView.updates.update(state)
+            self?.resourceView?.updates.update(state)
+            self?.updateStatusItem()
+        }
+        updateChecker.check()
         WidgetCenter.shared.reloadAllTimelines()
     }
 
@@ -85,10 +102,13 @@ final class NativeHostDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         }
         statusMenuView.onDisable = { [weak self] in self?.disableMenuBar() }
         statusMenuView.onQuit = { [weak self] in self?.quit() }
+        statusMenuView.updates.onCheck = { [weak self] in self?.updateChecker.check() }
+        statusMenuView.updates.onDownload = { [weak self] in self?.openUpdate() }
+        statusMenuView.updates.update(updateChecker.state)
         updateStatusItem()
     }
 
-    func applicationWillTerminate(_ notification: Notification) { monitor.stop(); detailMonitor.stop() }
+    func applicationWillTerminate(_ notification: Notification) { monitor.stop(); detailMonitor.stop(); updateChecker.stop() }
 
     func applicationDidBecomeActive(_ notification: Notification) {
         resourceView?.updateLoginItem(loginItem.status)
@@ -102,9 +122,14 @@ final class NativeHostDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         guard !statusMenuIsOpen else { return }
         let visible = battery == nil ? selected.subtracting([.battery]) : selected
         let title = MenuBarMetric.title(for: visible, snapshot: snapshot, battery: battery)
-        statusItem.length = MenuBarMetric.width(for: visible)
-        statusItem.button?.attributedTitle = MenuBarMetric.attributedTitle(for: visible, snapshot: snapshot, battery: battery)
-        statusItem.button?.setAccessibilityLabel(title.isEmpty ? "系统状态" : "系统状态，\(title)")
+        let text = NSMutableAttributedString(attributedString: MenuBarMetric.attributedTitle(for: visible, snapshot: snapshot, battery: battery))
+        let updateText = updateChecker.state.available ? (text.length == 0 ? "有新版本" : "  有新版本") : ""
+        text.append(NSAttributedString(string: updateText, attributes: [.font: MenuBarMetric.font]))
+        statusItem.length = updateText.isEmpty ? MenuBarMetric.width(for: visible) : max(34, MenuBarMetric.width(for: visible)) + ceil((updateText as NSString).size(withAttributes: [.font: MenuBarMetric.font]).width)
+        statusItem.button?.attributedTitle = text
+        statusItem.button?.image = NSImage(systemSymbolName: updateChecker.state.available ? "arrow.down.circle.fill" : "waveform.path.ecg", accessibilityDescription: "系统状态")
+        statusItem.button?.image?.size = NSSize(width: 14, height: 14)
+        statusItem.button?.setAccessibilityLabel(title.isEmpty && updateText.isEmpty ? "系统状态" : "系统状态，\(title)\(updateText)")
         statusItem.button?.toolTip = visible.contains(.battery) ? "系统状态，" + (battery?.summary ?? title) : "系统状态"
     }
 
@@ -169,6 +194,9 @@ final class NativeHostDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
             view.onLoginItemToggle = { [weak self] in self?.toggleLoginItem() }
             view.onLoginItemSettings = { [weak self] in self?.loginItem.openSettings() }
             view.onActivityMonitor = { [weak self] in self?.openActivityMonitor() }
+            view.updates.onCheck = { [weak self] in self?.updateChecker.check() }
+            view.updates.onDownload = { [weak self] in self?.openUpdate() }
+            view.updates.update(updateChecker.state)
             view.updatePreferences(preferences)
             view.updateBatteryAvailability(hasBatterySample ? battery != nil : nil)
             if let snapshot { view.metricsView.update(snapshot) }
@@ -207,6 +235,12 @@ final class NativeHostDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
             if let window { alert.beginSheetModal(for: window) }
         }
         resourceView?.updateLoginItem(loginItem.status)
+    }
+
+    private func openUpdate() {
+        guard updateChecker.state.available, let release = updateChecker.state.release else { return }
+        statusMenuView.menu.cancelTracking()
+        NSWorkspace.shared.open(release.url)
     }
 
     func windowWillClose(_ notification: Notification) {
