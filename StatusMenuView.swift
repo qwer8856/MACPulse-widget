@@ -97,7 +97,7 @@ final class StatusMenuController {
                 detail = "供电侧估算"
             case .battery:
                 value = details?.battery.map { MenuBarText.percent($0.percent) } ?? (details == nil ? "--" : "无电池")
-                detail = details == nil ? "正在读取电池信息" : (details?.battery.map { $0.charging ? "正在充电" : ($0.external ? "外接电源" : "电池供电") } ?? "无内置电池 · 外接电源")
+                detail = details == nil ? "正在读取电池信息" : (details?.battery?.stateLabel ?? "无内置电池 · 外接电源")
             }
             let paragraph = NSMutableParagraphStyle()
             paragraph.tabStops = [NSTextTab(textAlignment: .right, location: 285)]

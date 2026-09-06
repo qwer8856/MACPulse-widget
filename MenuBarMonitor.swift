@@ -169,11 +169,7 @@ final class MenuBarContentView: NSView {
             battery.update(value: "无电池", detail: "无内置电池 · 外接电源")
             return
         }
-        var status = metric.charging ? "正在充电" : (metric.external ? "外接电源" : "电池供电")
-        if let minutes = metric.minutesRemaining {
-            status += " · \(metric.charging ? "充满约需" : "预计剩余") \(minutes / 60) 小时 \(minutes % 60) 分钟"
-        }
-        battery.update(value: MenuBarText.percent(metric.percent), detail: status, reading: metric.percent, color: (metric.percent ?? 100) <= 20 ? .systemRed : .systemTeal)
+        battery.update(value: MenuBarText.percent(metric.percent), detail: metric.powerSummary, reading: metric.percent, color: (metric.percent ?? 100) <= 20 ? .systemRed : .systemTeal)
     }
 
     func update(_ snapshot: MetricsSnapshot) {

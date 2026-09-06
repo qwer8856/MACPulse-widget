@@ -111,7 +111,7 @@ final class NativeHostDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
     }
     func menuDidClose(_ menu: NSMenu) {
         statusMenuIsOpen = false
-        statusMenuView.disk.cancel()
+        statusMenuView.disk.cancelPendingAutomaticScan()
         updateStatusItem()
         updateDetailedSampling()
     }
@@ -190,6 +190,7 @@ final class NativeHostDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
         resourceWindowNeedsSampling = true
+        dashboard?.prepareVisiblePage()
         updateDetailedSampling()
     }
 
@@ -210,12 +211,12 @@ final class NativeHostDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
     func windowWillClose(_ notification: Notification) {
         resourceWindowNeedsSampling = false
         updateDetailedSampling()
-        dashboard?.disk.cancel()
+        dashboard?.disk.cancelPendingAutomaticScan()
         if preferences.menuBarEnabled { NSApp.setActivationPolicy(.accessory) }
     }
 
     func windowDidMiniaturize(_ notification: Notification) { resourceWindowNeedsSampling = false; updateDetailedSampling() }
-    func windowDidDeminiaturize(_ notification: Notification) { resourceWindowNeedsSampling = true; updateDetailedSampling() }
+    func windowDidDeminiaturize(_ notification: Notification) { resourceWindowNeedsSampling = true; dashboard?.prepareVisiblePage(); updateDetailedSampling() }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         !preferences.menuBarEnabled

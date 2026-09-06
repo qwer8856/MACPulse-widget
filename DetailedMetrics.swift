@@ -56,6 +56,7 @@ struct BatteryMetric {
     let external: Bool
     let minutesRemaining: Int?
     let health: String?
+    var charged: Bool = false
 
     static func decode(_ info: [String: Any]) -> BatteryMetric? {
         guard info[kIOPSTypeKey] as? String == kIOPSInternalBatteryType,
@@ -71,7 +72,8 @@ struct BatteryMetric {
         let minutes = (info[charging ? kIOPSTimeToFullChargeKey : kIOPSTimeToEmptyKey] as? NSNumber)?.intValue
         let health = info[kIOPSBatteryHealthKey] as? String
         return BatteryMetric(percent: percent, charging: charging, external: external,
-            minutesRemaining: (charging || !external) && (minutes ?? 0) > 0 ? minutes : nil, health: health)
+            minutesRemaining: (charging || !external) && (minutes ?? 0) > 0 ? minutes : nil, health: health,
+            charged: (info[kIOPSIsChargedKey] as? NSNumber)?.boolValue ?? false)
     }
 
     static func read() -> BatteryMetric? {
@@ -89,12 +91,23 @@ struct BatteryMetric {
     }
 
     var statusSummary: String {
-        var parts = [charging ? "正在充电" : (external ? "外接电源" : "电池供电")]
-        if let minutesRemaining { parts.append("\(charging ? "充满约需" : "预计剩余") \(minutesRemaining / 60) 小时 \(minutesRemaining % 60) 分钟") }
+        var parts = [powerSummary]
         if let health {
             let labels = ["Good": "正常", "Fair": "一般", "Poor": "较差", "Check Battery": "建议检修"]
             parts.append("健康状态：\(labels[health] ?? health)")
         }
+        return parts.joined(separator: " · ")
+    }
+
+    var stateLabel: String {
+        if charging { return "正在充电" }
+        if external { return charged ? "已充满 · 外接电源" : "外接电源 · 未充电" }
+        return "电池供电"
+    }
+
+    var powerSummary: String {
+        var parts = [stateLabel]
+        if let minutesRemaining { parts.append("\(charging ? "充满约需" : "预计剩余") \(minutesRemaining / 60) 小时 \(minutesRemaining % 60) 分钟") }
         return parts.joined(separator: " · ")
     }
 }

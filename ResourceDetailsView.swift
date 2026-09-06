@@ -187,6 +187,20 @@ final class CoreUsageView: NSView {
 
 enum ProcessSort: String { case cpu, memory, energy }
 
+private func centeredTableCell(in table: NSTableView, identifier: NSUserInterfaceItemIdentifier) -> NSTableCellView {
+    if let cell = table.makeView(withIdentifier: identifier, owner: nil) as? NSTableCellView { return cell }
+    let cell = NSTableCellView()
+    cell.identifier = identifier
+    let field = NSTextField(labelWithString: "")
+    field.translatesAutoresizingMaskIntoConstraints = false; field.usesSingleLineMode = true
+    cell.addSubview(field); cell.textField = field
+    NSLayoutConstraint.activate([
+        field.leadingAnchor.constraint(equalTo: cell.leadingAnchor), field.trailingAnchor.constraint(equalTo: cell.trailingAnchor),
+        field.centerYAnchor.constraint(equalTo: cell.centerYAnchor)
+    ])
+    return cell
+}
+
 final class ProcessTableView: NSView, NSTableViewDataSource, NSTableViewDelegate, NSSearchFieldDelegate {
     let table = NSTableView()
     let search = NSSearchField()
@@ -288,13 +302,27 @@ final class ProcessTableView: NSView, NSTableViewDataSource, NSTableViewDelegate
     private var selected: ProcessMetric? { rows.indices.contains(table.selectedRow) ? rows[table.selectedRow] : nil }
     private func reload() {
         let identity = selected?.identity
+        let oldCount = rows.count
         let query = search.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
         let filtered = (sample?.processes ?? []).filter { query.isEmpty || $0.name.localizedCaseInsensitiveContains(query) || String($0.identity.pid).contains(query) }
         let descriptor = table.sortDescriptors.first
         rows = Self.sorted(filtered, key: descriptor?.key ?? mode.rawValue, ascending: descriptor?.ascending ?? false)
-        table.reloadData()
-        if let identity, let row = rows.firstIndex(where: { $0.identity == identity }) { table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false) }
-        else { table.deselectAll(nil) }
+        if oldCount != rows.count { table.reloadData() }
+        else {
+            // Reuse the visible cells while live values and sort order change.
+            table.enumerateAvailableRowViews { _, row in
+                guard self.rows.indices.contains(row) else { return }
+                for column in self.table.tableColumns.indices {
+                    if let cell = self.table.view(atColumn: column, row: row, makeIfNecessary: false) as? NSTableCellView,
+                       let field = cell.textField {
+                        self.populate(field, id: self.table.tableColumns[column].identifier, value: self.rows[row])
+                    }
+                }
+            }
+        }
+        if let identity, let row = rows.firstIndex(where: { $0.identity == identity }) {
+            if row != table.selectedRow { table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false) }
+        } else if table.selectedRow >= 0 { table.deselectAll(nil) }
         updateSelection()
     }
     private func updateSelection() {
@@ -310,25 +338,15 @@ final class ProcessTableView: NSView, NSTableViewDataSource, NSTableViewDelegate
     func tableViewSelectionDidChange(_ notification: Notification) { updateSelection() }
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         guard rows.indices.contains(row), let id = tableColumn?.identifier else { return nil }
-        let value = rows[row]
-        let cell = (table.makeView(withIdentifier: id, owner: self) as? NSTableCellView) ?? NSTableCellView()
-        cell.identifier = id
-        if cell.textField == nil {
-            let field = NSTextField(labelWithString: "")
-            field.translatesAutoresizingMaskIntoConstraints = false
-            field.lineBreakMode = .byTruncatingTail
-            field.usesSingleLineMode = true
-            cell.addSubview(field)
-            cell.textField = field
-            NSLayoutConstraint.activate([
-                field.leadingAnchor.constraint(equalTo: cell.leadingAnchor),
-                field.trailingAnchor.constraint(equalTo: cell.trailingAnchor),
-                field.centerYAnchor.constraint(equalTo: cell.centerYAnchor)
-            ])
-        }
+        let cell = centeredTableCell(in: table, identifier: id)
         let field = cell.textField!
+        field.lineBreakMode = .byTruncatingTail
         field.font = id.rawValue == "name" ? .systemFont(ofSize: 12) : .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
         field.alignment = id.rawValue == "name" ? .left : .right
+        populate(field, id: id, value: rows[row])
+        return cell
+    }
+    private func populate(_ field: NSTextField, id: NSUserInterfaceItemIdentifier, value: ProcessMetric) {
         switch id.rawValue {
         case "name": field.stringValue = value.name
         case "pid": field.stringValue = String(value.identity.pid)
@@ -340,7 +358,6 @@ final class ProcessTableView: NSView, NSTableViewDataSource, NSTableViewDelegate
         default: break
         }
         field.toolTip = id.rawValue == "name" ? value.path : field.stringValue
-        return cell
     }
     @objc private func requestQuit() { confirmTermination(force: false) }
     @objc private func requestForceQuit() { confirmTermination(force: true) }
@@ -372,12 +389,15 @@ final class DiskUsageView: NSView, NSTableViewDataSource, NSTableViewDelegate {
     private(set) var rows: [DiskUsageItem] = []
     private var cancellation: DiskScanCancellation?
     private var generation = UUID()
+    private var automaticScanTimer: Timer?
+    private var completedAt: Date?
     private let queue = DispatchQueue(label: "local.macpulse.disk-scan", qos: .utility)
     var onChooseFolder: (() -> Void)?
     private let compact: Bool
 
-    init(compact: Bool = false) {
+    init(compact: Bool = false, root: URL = FileManager.default.homeDirectoryForCurrentUser) {
         self.compact = compact
+        self.root = root
         super.init(frame: .zero)
         let choose = toolButton("folder", "选择扫描目录", target: self, action: #selector(chooseFolder))
         let up = toolButton("arrow.up", "扫描上级目录", target: self, action: #selector(goUp))
@@ -419,12 +439,27 @@ final class DiskUsageView: NSView, NSTableViewDataSource, NSTableViewDelegate {
         let available = scroll.contentSize.width - table.intercellSpacing.width * 3 - 2
         for (column, width) in zip(table.tableColumns, [max(140, available - 240), 120, 120]) where abs(column.width - width) > 0.5 { column.width = width }
     }
-    deinit { cancellation?.cancel() }
+    deinit { automaticScanTimer?.invalidate(); cancellation?.cancel() }
+    func requestAutomaticScan() {
+        automaticScanTimer?.invalidate()
+        guard cancellation == nil, completedAt.map({ Date().timeIntervalSince($0) < 60 }) != true else { return }
+        let timer = Timer(timeInterval: 0.2, repeats: false) { [weak self] _ in
+            guard let self else { return }
+            self.automaticScanTimer = nil
+            guard self.window?.isVisible == true, !self.isHiddenOrHasHiddenAncestor, self.cancellation == nil else { return }
+            self.scan(self.root)
+        }
+        automaticScanTimer = timer
+        RunLoop.main.add(timer, forMode: .common); RunLoop.main.add(timer, forMode: .eventTracking)
+    }
+    func cancelPendingAutomaticScan() { automaticScanTimer?.invalidate(); automaticScanTimer = nil }
     func scan(_ directory: URL) {
+        cancelPendingAutomaticScan()
         cancellation?.cancel()
         let cancellation = DiskScanCancellation(), token = UUID()
-        self.cancellation = cancellation; generation = token; root = directory; result = nil; rows = []
-        table.reloadData(); pathLabel.stringValue = directory.path; pathLabel.toolTip = directory.path
+        self.cancellation = cancellation; generation = token; completedAt = nil
+        if root != directory { result = nil; rows = []; table.reloadData() }
+        root = directory; pathLabel.stringValue = directory.path; pathLabel.toolTip = directory.path
         status.stringValue = "扫描中…"; scanButton.isEnabled = false; cancelButton.isEnabled = true
         queue.async { [weak self] in
             let result = DiskUsageScanner.scan(root: directory, cancellation: cancellation) { progress in
@@ -449,9 +484,12 @@ final class DiskUsageView: NSView, NSTableViewDataSource, NSTableViewDelegate {
         let state = result.cancelled ? "已取消，结果不完整" : (result.finished ? "扫描完成" : "扫描中…")
         status.stringValue = "\(state) · \(result.visited) 项 · \(memorySize(Double(result.total))) · \(result.skipped) 项无法访问或已跳过"
         scanButton.isEnabled = result.finished; cancelButton.isEnabled = !result.finished
-        if result.finished { cancellation = nil }
+        if result.finished {
+            cancellation = nil
+            completedAt = result.cancelled ? nil : (completedAt ?? Date())
+        }
     }
-    func cancel() { cancellation?.cancel() }
+    func cancel() { cancelPendingAutomaticScan(); cancellation?.cancel() }
     @objc private func scanCurrent() { scan(root) }
     @objc private func cancelScan() { cancel() }
     @objc private func goUp() { scan(root.deletingLastPathComponent()) }
@@ -472,15 +510,16 @@ final class DiskUsageView: NSView, NSTableViewDataSource, NSTableViewDelegate {
     func tableView(_ tableView: NSTableView, sortDescriptorsDidChange oldDescriptors: [NSSortDescriptor]) { if let result { update(result) } }
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         guard rows.indices.contains(row), let id = tableColumn?.identifier else { return nil }
-        let field = (table.makeView(withIdentifier: id, owner: self) as? NSTextField) ?? NSTextField(labelWithString: "")
-        field.identifier = id; field.font = .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
+        let cell = centeredTableCell(in: table, identifier: id)
+        let field = cell.textField!
+        field.font = id.rawValue == "name" ? .systemFont(ofSize: 12) : .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
         field.lineBreakMode = .byTruncatingMiddle; field.alignment = id.rawValue == "name" ? .left : .right
         let item = rows[row]
         if id.rawValue == "name" { field.stringValue = item.url.lastPathComponent + (item.isDirectory ? "/" : "") }
         else if id.rawValue == "bytes" { field.stringValue = memorySize(Double(item.bytes)) }
         else { field.stringValue = (result?.total ?? 0) > 0 ? String(format: "%.1f%%", Double(item.bytes) / Double(result!.total) * 100) : "--" }
         field.toolTip = item.url.path
-        return field
+        return cell
     }
 }
 
@@ -528,7 +567,15 @@ final class ResourceDashboardView: NSView, NSTabViewDelegate {
     required init?(coder: NSCoder) { fatalError() }
     @objc private func selectPage() { tabs.selectTabViewItem(at: navigation.selectedSegment) }
     func tabView(_ tabView: NSTabView, didSelect tabViewItem: NSTabViewItem?) {
-        if let tabViewItem { navigation.selectedSegment = tabView.indexOfTabViewItem(tabViewItem) }
+        if let tabViewItem {
+            navigation.selectedSegment = tabView.indexOfTabViewItem(tabViewItem)
+            prepareVisiblePage()
+        }
+    }
+    func prepareVisiblePage() {
+        updateVisibleProcesses()
+        if navigation.selectedSegment == 3 { disk.requestAutomaticScan() }
+        else { disk.cancelPendingAutomaticScan() }
     }
     private func addTab(_ label: String, view: NSView) {
         let tab = NSTabViewItem(identifier: label); tab.label = label; tab.view = view; tabs.addTabViewItem(tab)
@@ -543,8 +590,17 @@ final class ResourceDashboardView: NSView, NSTabViewDelegate {
     func updateDetails(_ details: DetailedSnapshot) {
         self.details = details
         configuration.metricsView.updateDetails(details)
-        cpuTable.update(details); memoryTable.update(details); energyTable.update(details)
+        updateVisibleProcesses()
         updateSummaries()
+    }
+    private func updateVisibleProcesses() {
+        guard let details else { return }
+        switch navigation.selectedSegment {
+        case 1: cpuTable.update(details)
+        case 2: memoryTable.update(details)
+        case 4: energyTable.update(details)
+        default: break
+        }
     }
     private func updateSummaries() {
         cpuSummary.stringValue = "CPU 总利用率 \(MenuBarText.percent(sample?.cpu))"

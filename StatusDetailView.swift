@@ -29,7 +29,7 @@ enum StatusDetail: String, CaseIterable {
 final class StatusDetailView: NSView {
     let kind: StatusDetail
     let cores = CoreUsageView()
-    let disk = DiskUsageView(compact: true)
+    lazy var disk = DiskUsageView(compact: true)
     private(set) var processes: ProcessTableView?
     private let title = NSTextField(labelWithString: "")
     private let summary = NSTextField(wrappingLabelWithString: "等待采样")
@@ -88,22 +88,25 @@ final class StatusDetailView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if window != nil { refresh() }
+        if window != nil {
+            refresh(reloadProcesses: true)
+            if kind == .disk { disk.requestAutomaticScan() }
+        } else if kind == .disk { disk.cancelPendingAutomaticScan() }
     }
-    func update(_ snapshot: MetricsSnapshot) { self.snapshot = snapshot; refresh() }
+    func update(_ snapshot: MetricsSnapshot) { self.snapshot = snapshot; refresh(reloadProcesses: false) }
     func updateDetails(_ details: DetailedSnapshot?) {
         self.details = details
         if details == nil { processes?.clear() }
         if kind == .cpu { cores.update(details?.cores ?? Array(repeating: nil, count: ProcessInfo.processInfo.processorCount)) }
-        refresh()
+        refresh(reloadProcesses: true)
     }
-    private func refresh() {
+    private func refresh(reloadProcesses: Bool) {
         if kind == .cpu {
             title.stringValue = "CPU · \(ProcessInfo.processInfo.processorCount) 个逻辑核心"
             summary.stringValue = "总利用率 \(MenuBarText.percent(snapshot?.cpu))"
         }
         metricSummary?.update(snapshot, details: details)
-        if window != nil, let details { processes?.update(details) }
+        if reloadProcesses, window != nil, let details { processes?.update(details) }
     }
     @objc private func openMonitor() { onOpenMonitor?(kind.page) }
 }
