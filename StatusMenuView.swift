@@ -99,12 +99,11 @@ final class StatusMenuController {
                 value = details?.battery.map { MenuBarText.percent($0.percent) } ?? (details == nil ? "--" : "无电池")
                 detail = details == nil ? "正在读取电池信息" : (details?.battery?.stateLabel ?? "无内置电池 · 外接电源")
             }
-            let paragraph = NSMutableParagraphStyle()
-            paragraph.tabStops = [NSTextTab(textAlignment: .right, location: 285)]
             // Render both lines together: AppKit can drop a separate subtitle when an attributed title changes during tracking.
-            let title = NSMutableAttributedString(string: kind.title + "\t" + value + "\n", attributes: [.font: NSFont.monospacedDigitSystemFont(ofSize: 13, weight: .medium), .paragraphStyle: paragraph])
+            let title = NSMutableAttributedString(string: kind.title + "\n", attributes: [.font: NSFont.systemFont(ofSize: 13, weight: .medium)])
             title.append(NSAttributedString(string: detail, attributes: [.font: NSFont.systemFont(ofSize: 11)]))
             if items[kind]?.attributedTitle != title { items[kind]?.attributedTitle = title }
+            if items[kind]?.badge?.stringValue != value { items[kind]?.badge = NSMenuItemBadge(string: value) }
             items[kind]?.toolTip = detail
         }
     }

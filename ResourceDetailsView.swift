@@ -21,21 +21,40 @@ struct PowerScale {
     }
 }
 
-final class MetricBar: NSLevelIndicator {
+final class MetricBar: NSView {
+    private(set) var isEnabled = false
+    private(set) var doubleValue = 0.0
+    private(set) var maxValue = 100.0
+    private var fillColor: NSColor
     init(color: NSColor) {
+        fillColor = color
         super.init(frame: .zero)
-        levelIndicatorStyle = .continuousCapacity; isEditable = false; drawsTieredCapacityLevels = false
-        fillColor = color; warningFillColor = color; criticalFillColor = color
+        setAccessibilityElement(true)
+        setAccessibilityRole(.progressIndicator)
         update(nil)
     }
     required init?(coder: NSCoder) { fatalError() }
+    override func draw(_ dirtyRect: NSRect) {
+        let track = bounds
+        guard track.width > 0, track.height > 0 else { return }
+        NSColor.labelColor.withAlphaComponent(0.12).setFill()
+        NSBezierPath(roundedRect: track, xRadius: track.height / 2, yRadius: track.height / 2).fill()
+        guard isEnabled, maxValue > 0, doubleValue > 0 else { return }
+        let width = track.width * min(1, max(0, doubleValue / maxValue))
+        let fill = NSRect(x: track.minX, y: track.minY, width: width, height: track.height)
+        let radius = min(fill.width, fill.height) / 2
+        fillColor.setFill()
+        NSBezierPath(roundedRect: fill, xRadius: radius, yRadius: radius).fill()
+    }
     func update(_ reading: Double?, maximum: Double = 100, color: NSColor? = nil, description: String = "暂无数据") {
         maxValue = maximum.isFinite && maximum > 0 ? maximum : 100
-        minValue = 0; warningValue = maxValue; criticalValue = maxValue
-        if let color { fillColor = color; warningFillColor = color; criticalFillColor = color }
+        if let color { fillColor = color }
         let valid = reading.flatMap { $0.isFinite && $0 >= 0 ? $0 : nil }
         isEnabled = valid != nil; doubleValue = min(maxValue, valid ?? 0)
+        setAccessibilityEnabled(isEnabled)
         toolTip = description; setAccessibilityValue(description)
+        setAccessibilityMinValue(0); setAccessibilityMaxValue(maxValue)
+        needsDisplay = true
     }
 }
 
