@@ -83,6 +83,13 @@ final class MetricsCollector {
     private var lastDiskRead = Date.distantPast
     private var cachedPower: PowerMetric?
     private var lastPowerRead = Date.distantPast
+    private let diskReadInterval: TimeInterval
+    private let powerReadInterval: TimeInterval
+
+    init(diskReadInterval: TimeInterval = 15, powerReadInterval: TimeInterval = 5) {
+        self.diskReadInterval = diskReadInterval
+        self.powerReadInterval = powerReadInterval
+    }
 
     deinit { mach_port_deallocate(mach_task_self_, host) }
 
@@ -98,11 +105,11 @@ final class MetricsCollector {
         if let ticks, let previousCPU { cpu = ticks.utilization(since: previousCPU) }
         else { cpu = nil }
         previousCPU = ticks
-        if now.timeIntervalSince(lastDiskRead) >= 15 {
+        if now.timeIntervalSince(lastDiskRead) >= diskReadInterval {
             cachedDisk = readDisk()
             lastDiskRead = now
         }
-        if now.timeIntervalSince(lastPowerRead) >= 5 {
+        if now.timeIntervalSince(lastPowerRead) >= powerReadInterval {
             cachedPower = readPower(now: now)
             lastPowerRead = now
         }

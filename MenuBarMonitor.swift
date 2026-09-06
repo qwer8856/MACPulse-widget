@@ -3,30 +3,38 @@ import AppKit
 final class LiveMetricsMonitor {
     var onSample: ((MetricsSnapshot) -> Void)?
     private let queue = DispatchQueue(label: "local.macpulse.menu-sampling", qos: .utility)
-    private let collector = MetricsCollector()
     private var timer: DispatchSourceTimer?
-    private var lastSample: Date?
+    private var generation = UUID()
 
     func start() {
+        precondition(Thread.isMainThread)
         guard timer == nil else { return }
+        let generation = UUID()
+        self.generation = generation
+        let collector = MetricsCollector(diskReadInterval: 0, powerReadInterval: 0)
+        var lastSample: Date?
         let timer = DispatchSource.makeTimerSource(queue: queue)
         timer.schedule(deadline: .now(), repeating: 1, leeway: .milliseconds(100))
         timer.setEventHandler { [weak self] in
-            guard let self else { return }
             let now = Date()
             // Discard CPU deltas spanning sleep or a long scheduling delay.
-            if let lastSample = self.lastSample, now.timeIntervalSince(lastSample) > 3 {
-                self.collector.reset()
+            if let lastSample, now.timeIntervalSince(lastSample) > 3 {
+                collector.reset()
             }
-            let snapshot = self.collector.sample(now: now)
-            self.lastSample = now
-            DispatchQueue.main.async { [weak self] in self?.onSample?(snapshot) }
+            let snapshot = collector.sample(now: now)
+            lastSample = now
+            RunLoop.main.perform(inModes: [.default, .eventTracking, .modalPanel]) { [weak self] in
+                guard let self, self.generation == generation, self.timer != nil else { return }
+                self.onSample?(snapshot)
+            }
         }
         self.timer = timer
         timer.resume()
     }
 
     func stop() {
+        precondition(Thread.isMainThread)
+        generation = UUID()
         timer?.cancel()
         timer = nil
     }
