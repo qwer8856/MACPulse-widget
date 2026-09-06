@@ -1,0 +1,41 @@
+#!/bin/zsh
+set -euo pipefail
+
+SOURCE_DIR="${0:A:h}"
+BUILD_DIR="${2:-${TMPDIR:-/tmp}/macpulse-widget-build}"
+OUTPUT_DIR="${1:-${BUILD_DIR}/dist}"
+APP_PATH="$OUTPUT_DIR/系统状态.app"
+WIDGET_PATH="$APP_PATH/Contents/PlugIns/SystemStatusWidget.appex"
+
+mkdir -p "$APP_PATH/Contents/MacOS" "$APP_PATH/Contents/Resources" "$WIDGET_PATH/Contents/MacOS" "$BUILD_DIR"
+COMPILER_FLAGS=()
+if [[ -n "${MONITOR_VFS_OVERLAY:-}" ]]; then
+    COMPILER_FLAGS+=(-vfsoverlay "$MONITOR_VFS_OVERLAY")
+elif [[ -f /Library/Developer/CommandLineTools/usr/include/swift/module.modulemap && \
+        -f /Library/Developer/CommandLineTools/usr/include/swift/bridging.modulemap ]]; then
+    COMPILER_FLAGS+=(-vfsoverlay "$SOURCE_DIR/Compatibility/toolchain-overlay.json")
+fi
+xcrun swiftc -O -parse-as-library -swift-version 5 -target arm64-apple-macos14.0 \
+    "${COMPILER_FLAGS[@]}" \
+    -module-cache-path "$BUILD_DIR/ModuleCache" \
+    -framework AppKit -framework WidgetKit \
+    "$SOURCE_DIR/NativeHost.swift" \
+    -o "$APP_PATH/Contents/MacOS/DesktopMonitor"
+xcrun swiftc -O -parse-as-library -swift-version 5 -target arm64-apple-macos14.0 -D WIDGET_EXTENSION -application-extension \
+    "${COMPILER_FLAGS[@]}" \
+    -module-cache-path "$BUILD_DIR/ModuleCache" \
+    -Xlinker -e -Xlinker _NSExtensionMain \
+    -framework AppKit -framework IOKit -framework SwiftUI -framework WidgetKit \
+    "$SOURCE_DIR/Metrics.swift" "$SOURCE_DIR/NativeWidget.swift" \
+    -o "$WIDGET_PATH/Contents/MacOS/SystemStatusWidget"
+cp "$SOURCE_DIR/Info.plist" "$APP_PATH/Contents/Info.plist"
+cp "$SOURCE_DIR/WidgetInfo.plist" "$WIDGET_PATH/Contents/Info.plist"
+if [[ -f "$SOURCE_DIR/AppIcon.icns" ]]; then
+    cp "$SOURCE_DIR/AppIcon.icns" "$APP_PATH/Contents/Resources/AppIcon.icns"
+fi
+xattr -cr "$APP_PATH"
+codesign --force --sign - --entitlements "$SOURCE_DIR/Widget.entitlements" "$WIDGET_PATH"
+codesign --force --sign - "$APP_PATH"
+codesign --verify --deep --strict "$APP_PATH"
+plutil -lint "$APP_PATH/Contents/Info.plist"
+print -r -- "$APP_PATH"
