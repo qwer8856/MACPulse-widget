@@ -2,13 +2,13 @@
 
 原生 macOS 资源监视、可选菜单栏监控与桌面小组件。查看各核心 CPU、进程内存、目录容量、电池与进程 CPU 能耗，并由用户选择退出进程。资源监视使用普通窗口，不会置顶。
 
-当前版本：**3.2.1**。安装后的应用和小组件名称均为 **“系统状态”**。
+当前版本：**3.2.2**。安装后的应用和小组件名称均为 **“系统状态”**。
 
 ## 下载安装
 
-**[下载安装包：MacPulse Widget 3.2.1（M 系列 Mac）](https://github.com/qwer8856/MACPulse-widget/releases/download/v3.2.1/MACPulse-Widget-v3.2.1-macOS-arm64.zip)**
+**[下载安装包：MacPulse Widget 3.2.2（M 系列 Mac）](https://github.com/qwer8856/MACPulse-widget/releases/download/v3.2.2/MACPulse-Widget-v3.2.2-macOS-arm64.zip)**
 
-[版本发布页与校验文件](https://github.com/qwer8856/MACPulse-widget/releases/tag/v3.2.1)
+[版本发布页与校验文件](https://github.com/qwer8856/MACPulse-widget/releases/tag/v3.2.2)
 
 需要 Apple Silicon Mac（M 系列）和 macOS 14 或更新版本。
 
