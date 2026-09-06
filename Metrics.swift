@@ -22,6 +22,8 @@ struct MemoryMetric {
     let compressed: Double
     let swap: Double?
     let pressure: Int?
+    var application: Double? = nil
+    var wired: Double? = nil
     var percent: Double { occupied / total * 100 }
     var pressureLabel: String {
         switch pressure {
@@ -150,7 +152,9 @@ final class MetricsCollector {
         return MemoryMetric(total: total, occupied: max(0, min(total, used)),
                             compressed: Double(info.compressor_page_count) * Double(pageSize),
                             swap: swapResult == 0 ? Double(swap.xsu_used) : nil,
-                            pressure: pressureResult == 0 ? Int(pressure) : nil)
+                            pressure: pressureResult == 0 ? Int(pressure) : nil,
+                            application: max(0, Double(info.internal_page_count) - Double(info.purgeable_count)) * Double(pageSize),
+                            wired: Double(info.wire_count) * Double(pageSize))
     }
 
     private func readDisk() -> DiskMetric? {

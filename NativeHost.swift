@@ -1,18 +1,19 @@
 import AppKit
 import WidgetKit
 
-final class NativeHostDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate {
+final class NativeHostDelegate: NSObject, NSApplicationDelegate, NSWindowDelegate, NSMenuDelegate {
     private(set) var statusItem: NSStatusItem?
     private(set) var window: NSWindow?
     private(set) var resourceView: ResourceMonitorContentView?
+    private(set) var dashboard: ResourceDashboardView?
+    let statusMenuView = StatusMenuView()
     private let preferences: MonitorPreferences
     private let monitor = LiveMetricsMonitor()
+    private let detailMonitor = DetailedMonitor()
     private let loginItem = LoginItemController()
     private var launchedAtLogin = false
-    private let metricsView = MenuBarContentView()
     private var snapshot: MetricsSnapshot?
-    private var metricItems: [NSMenuItem] = []
-    private var iconOnlyItem: NSMenuItem?
+    private var statusMenuIsOpen = false
 
     init(defaults: UserDefaults = .standard) {
         preferences = MonitorPreferences(defaults: defaults)
@@ -42,8 +43,9 @@ final class NativeHostDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         monitor.onSample = { [weak self] snapshot in
             guard let self else { return }
             self.snapshot = snapshot
-            self.metricsView.update(snapshot)
+            self.statusMenuView.metrics.update(snapshot)
             self.resourceView?.metricsView.update(snapshot)
+            self.dashboard?.update(snapshot)
             self.updateStatusItem()
         }
         monitor.start()
@@ -60,37 +62,25 @@ final class NativeHostDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         statusItem.button?.font = MenuBarMetric.font
         statusItem.button?.toolTip = "系统状态"
         let menu = NSMenu()
-        let metricsItem = NSMenuItem()
-        metricsItem.view = metricsView
-        menu.addItem(metricsItem)
-        menu.addItem(.separator())
-        menu.addItem(item("资源监视…", action: #selector(showResourceMonitor)))
-        let selection = NSMenuItem(title: "显示内容", action: nil, keyEquivalent: "")
-        let submenu = NSMenu()
-        metricItems = MenuBarMetric.allCases.enumerated().map { index, metric in
-            let menuItem = item(metric.label, action: #selector(toggleMetric(_:)))
-            menuItem.tag = index
-            submenu.addItem(menuItem)
-            return menuItem
-        }
-        submenu.addItem(.separator())
-        let iconOnly = item("仅图标", action: #selector(clearMetrics))
-        iconOnlyItem = iconOnly
-        submenu.addItem(iconOnly)
-        selection.submenu = submenu
-        menu.addItem(selection)
-        menu.addItem(item("关闭菜单栏显示", action: #selector(disableMenuBar)))
-        menu.addItem(.separator())
-        menu.addItem(item("打开活动监视器", action: #selector(openActivityMonitor)))
-        menu.addItem(item("刷新小组件", action: #selector(refreshWidgets)))
-        menu.addItem(item("查看小组件状态", action: #selector(showStatus)))
-        menu.addItem(.separator())
-        menu.addItem(item("退出系统状态", action: #selector(quit)))
+        menu.delegate = self
+        let content = NSMenuItem()
+        content.view = statusMenuView
+        menu.addItem(content)
         statusItem.menu = menu
+        statusMenuView.onSelection = { [weak self] selected in
+            guard let self else { return }
+            self.preferences.metrics = selected
+            self.resourceView?.updatePreferences(self.preferences)
+            self.updateStatusItem()
+        }
+        statusMenuView.onOpenMonitor = { [weak self] in self?.showResourceMonitor() }
+        statusMenuView.onDisable = { [weak self] in self?.disableMenuBar() }
+        statusMenuView.onQuit = { [weak self] in self?.quit() }
+        statusMenuView.onRefresh = { [weak self] in self?.refreshWidgets() }
         updateStatusItem()
     }
 
-    func applicationWillTerminate(_ notification: Notification) { monitor.stop() }
+    func applicationWillTerminate(_ notification: Notification) { monitor.stop(); detailMonitor.stop(); dashboard?.disk.cancel() }
 
     func applicationDidBecomeActive(_ notification: Notification) {
         resourceView?.updateLoginItem(loginItem.status)
@@ -99,41 +89,26 @@ final class NativeHostDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
     private func updateStatusItem() {
         guard let statusItem else { return }
         let selected = preferences.metrics
+        statusMenuView.updateSelection(selected)
+        // Keep the status item's anchor stable until the user closes its menu.
+        guard !statusMenuIsOpen else { return }
         let title = MenuBarMetric.title(for: selected, snapshot: snapshot)
         statusItem.length = MenuBarMetric.width(for: selected)
         statusItem.button?.title = title
         statusItem.button?.setAccessibilityLabel(title.isEmpty ? "系统状态" : "系统状态，\(title)")
-        for menuItem in metricItems {
-            menuItem.state = selected.contains(MenuBarMetric.allCases[menuItem.tag]) ? .on : .off
-        }
-        iconOnlyItem?.state = selected.isEmpty ? .on : .off
     }
+
+    func menuWillOpen(_ menu: NSMenu) { statusMenuIsOpen = true }
+    func menuDidClose(_ menu: NSMenu) { statusMenuIsOpen = false; updateStatusItem() }
 
     private func applyMenuBarPreference() {
         if preferences.menuBarEnabled {
             createStatusItem()
         } else if let statusItem {
+            statusItem.menu?.cancelTracking()
             NSStatusBar.system.removeStatusItem(statusItem)
             self.statusItem = nil
-            metricItems = []
-            iconOnlyItem = nil
         }
-        resourceView?.updatePreferences(preferences)
-        updateStatusItem()
-    }
-
-    @objc private func toggleMetric(_ sender: NSMenuItem) {
-        let metric = MenuBarMetric.allCases[sender.tag]
-        var selected = preferences.metrics
-        if selected.contains(metric) { selected.remove(metric) }
-        else { selected.insert(metric) }
-        preferences.metrics = selected
-        resourceView?.updatePreferences(preferences)
-        updateStatusItem()
-    }
-
-    @objc private func clearMetrics() {
-        preferences.metrics = []
         resourceView?.updatePreferences(preferences)
         updateStatusItem()
     }
@@ -145,6 +120,7 @@ final class NativeHostDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
     }
 
     @objc private func showResourceMonitor() {
+        statusItem?.menu?.cancelTracking()
         if window == nil {
             let view = ResourceMonitorContentView()
             view.onMenuBarChanged = { [weak self] enabled in
@@ -164,11 +140,16 @@ final class NativeHostDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
             view.updatePreferences(preferences)
             if let snapshot { view.metricsView.update(snapshot) }
             resourceView = view
-            let window = NSWindow(contentRect: view.frame, styleMask: [.titled, .closable, .miniaturizable], backing: .buffered, defer: false)
+            let dashboard = ResourceDashboardView(configuration: view)
+            self.dashboard = dashboard
+            if let snapshot { dashboard.update(snapshot) }
+            detailMonitor.onSample = { [weak self] in self?.dashboard?.updateDetails($0) }
+            let window = NSWindow(contentRect: dashboard.frame, styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
             window.title = "资源监视"
             window.level = .normal
             window.isReleasedWhenClosed = false
-            window.contentView = view
+            window.contentView = dashboard
+            window.contentMinSize = NSSize(width: 820, height: 600)
             window.delegate = self
             window.center()
             self.window = window
@@ -177,6 +158,7 @@ final class NativeHostDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         NSApp.setActivationPolicy(.regular)
         window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+        detailMonitor.start()
     }
 
     private func toggleLoginItem() {
@@ -194,8 +176,13 @@ final class NativeHostDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
     }
 
     func windowWillClose(_ notification: Notification) {
+        detailMonitor.stop()
+        dashboard?.disk.cancel()
         if preferences.menuBarEnabled { NSApp.setActivationPolicy(.accessory) }
     }
+
+    func windowDidMiniaturize(_ notification: Notification) { detailMonitor.stop() }
+    func windowDidDeminiaturize(_ notification: Notification) { detailMonitor.start() }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         !preferences.menuBarEnabled

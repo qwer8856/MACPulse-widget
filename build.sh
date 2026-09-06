@@ -19,7 +19,9 @@ xcrun swiftc -O -parse-as-library -swift-version 5 -target arm64-apple-macos14.0
     "${COMPILER_FLAGS[@]}" \
     -module-cache-path "$BUILD_DIR/ModuleCache" \
     -framework AppKit -framework WidgetKit -framework IOKit -framework ServiceManagement \
-    "$SOURCE_DIR/Metrics.swift" "$SOURCE_DIR/MenuBarMonitor.swift" "$SOURCE_DIR/LoginItem.swift" "$SOURCE_DIR/ResourceMonitorWindow.swift" "$SOURCE_DIR/NativeHost.swift" \
+    "$SOURCE_DIR/Metrics.swift" "$SOURCE_DIR/MenuBarMonitor.swift" "$SOURCE_DIR/LoginItem.swift" \
+    "$SOURCE_DIR/ResourceMonitorWindow.swift" "$SOURCE_DIR/DetailedMetrics.swift" "$SOURCE_DIR/DiskUsage.swift" \
+    "$SOURCE_DIR/ResourceDetailsView.swift" "$SOURCE_DIR/StatusMenuView.swift" "$SOURCE_DIR/NativeHost.swift" \
     -o "$APP_PATH/Contents/MacOS/DesktopMonitor"
 xcrun swiftc -O -parse-as-library -swift-version 5 -target arm64-apple-macos14.0 -D WIDGET_EXTENSION -application-extension \
     "${COMPILER_FLAGS[@]}" \
