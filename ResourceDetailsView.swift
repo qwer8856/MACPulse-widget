@@ -12,6 +12,150 @@ func memorySize(_ bytes: Double) -> String {
     bytes >= 1_073_741_824 ? String(format: "%.2f GiB", bytes / 1_073_741_824) : String(format: "%.1f MiB", bytes / 1_048_576)
 }
 
+struct PowerScale {
+    private(set) var maximum = 20.0
+    mutating func include(_ watts: Double?) {
+        guard let watts, watts.isFinite, watts >= 0 else { return }
+        // Only expand the scale so a falling reading never makes the bar look fuller.
+        maximum = max(maximum, [20, 50, 100, 200, 500, 1000].first { $0 >= watts } ?? ceil(watts / 1000) * 1000)
+    }
+}
+
+final class MetricBar: NSLevelIndicator {
+    init(color: NSColor) {
+        super.init(frame: .zero)
+        levelIndicatorStyle = .continuousCapacity; isEditable = false; drawsTieredCapacityLevels = false
+        fillColor = color; warningFillColor = color; criticalFillColor = color
+        update(nil)
+    }
+    required init?(coder: NSCoder) { fatalError() }
+    func update(_ reading: Double?, maximum: Double = 100, color: NSColor? = nil, description: String = "暂无数据") {
+        maxValue = maximum.isFinite && maximum > 0 ? maximum : 100
+        minValue = 0; warningValue = maxValue; criticalValue = maxValue
+        if let color { fillColor = color; warningFillColor = color; criticalFillColor = color }
+        let valid = reading.flatMap { $0.isFinite && $0 >= 0 ? $0 : nil }
+        isEnabled = valid != nil; doubleValue = min(maxValue, valid ?? 0)
+        toolTip = description; setAccessibilityValue(description)
+    }
+}
+
+final class MetricGaugeView: NSView {
+    let bar: MetricBar
+    private let value = NSTextField(labelWithString: "--")
+    private let maximumLabel = NSTextField(labelWithString: "")
+    private let showsScale: Bool
+    init(title: String, color: NSColor, showsScale: Bool = false) {
+        self.showsScale = showsScale; bar = MetricBar(color: color)
+        super.init(frame: .zero)
+        let label = NSTextField(labelWithString: title)
+        label.font = .systemFont(ofSize: 12, weight: .medium)
+        value.font = .monospacedDigitSystemFont(ofSize: 13, weight: .semibold); value.alignment = .right
+        bar.setAccessibilityLabel(title)
+        for view in [label, value, bar] { view.translatesAutoresizingMaskIntoConstraints = false; addSubview(view) }
+        NSLayoutConstraint.activate([
+            heightAnchor.constraint(equalToConstant: showsScale ? 52 : 38),
+            label.leadingAnchor.constraint(equalTo: leadingAnchor), label.topAnchor.constraint(equalTo: topAnchor),
+            value.trailingAnchor.constraint(equalTo: trailingAnchor), value.firstBaselineAnchor.constraint(equalTo: label.firstBaselineAnchor),
+            value.leadingAnchor.constraint(greaterThanOrEqualTo: label.trailingAnchor, constant: 12),
+            bar.leadingAnchor.constraint(equalTo: leadingAnchor), bar.trailingAnchor.constraint(equalTo: trailingAnchor),
+            bar.topAnchor.constraint(equalTo: topAnchor, constant: 23), bar.heightAnchor.constraint(equalToConstant: 8)
+        ])
+        if showsScale {
+            let minimumLabel = NSTextField(labelWithString: "0 W")
+            maximumLabel.alignment = .right
+            for field in [minimumLabel, maximumLabel] {
+                field.font = .monospacedDigitSystemFont(ofSize: 10, weight: .regular); field.textColor = .secondaryLabelColor
+                field.translatesAutoresizingMaskIntoConstraints = false; addSubview(field)
+                field.topAnchor.constraint(equalTo: bar.bottomAnchor, constant: 3).isActive = true
+            }
+            minimumLabel.leadingAnchor.constraint(equalTo: leadingAnchor).isActive = true
+            maximumLabel.trailingAnchor.constraint(equalTo: trailingAnchor).isActive = true
+        }
+    }
+    required init?(coder: NSCoder) { fatalError() }
+    func update(_ reading: Double?, text: String, maximum: Double = 100, color: NSColor? = nil) {
+        value.stringValue = text
+        bar.update(reading, maximum: maximum, color: color, description: text + (showsScale ? String(format: "，刻度 0 至 %.0f W", maximum) : ""))
+        if showsScale { maximumLabel.stringValue = String(format: "%.0f W", maximum) }
+    }
+}
+
+final class MetricSummaryView: NSView {
+    let primary: MetricGaugeView
+    let power: MetricGaugeView?
+    private let detail = NSTextField(wrappingLabelWithString: "等待采样")
+    private let kind: StatusDetail
+    private let compact: Bool
+    private var powerScale = PowerScale()
+    var preferredHeight: CGFloat {
+        switch kind { case .memory: return 82; case .disk: return 74; default: return compact ? 148 : 102 }
+    }
+    init(kind: StatusDetail, compact: Bool = false) {
+        self.kind = kind; self.compact = compact
+        switch kind {
+        case .memory: primary = MetricGaugeView(title: "已用内存", color: .systemGreen)
+        case .disk: primary = MetricGaugeView(title: "已用空间", color: .systemOrange)
+        default: primary = MetricGaugeView(title: "电池电量", color: .systemTeal)
+        }
+        power = kind == .power || kind == .battery ? MetricGaugeView(title: "供电功率", color: .systemPink, showsScale: true) : nil
+        super.init(frame: .zero)
+        detail.font = .systemFont(ofSize: 11); detail.textColor = .secondaryLabelColor
+        for view in [primary, detail] { view.translatesAutoresizingMaskIntoConstraints = false; addSubview(view) }
+        NSLayoutConstraint.activate([
+            primary.leadingAnchor.constraint(equalTo: leadingAnchor), primary.topAnchor.constraint(equalTo: topAnchor),
+            detail.leadingAnchor.constraint(equalTo: leadingAnchor), detail.trailingAnchor.constraint(equalTo: trailingAnchor), detail.bottomAnchor.constraint(equalTo: bottomAnchor)
+        ])
+        if let power {
+            power.translatesAutoresizingMaskIntoConstraints = false; addSubview(power)
+            power.trailingAnchor.constraint(equalTo: trailingAnchor).isActive = true
+            if compact {
+                primary.trailingAnchor.constraint(equalTo: trailingAnchor).isActive = true
+                power.leadingAnchor.constraint(equalTo: leadingAnchor).isActive = true
+                power.topAnchor.constraint(equalTo: primary.bottomAnchor, constant: 6).isActive = true
+            } else {
+                primary.widthAnchor.constraint(equalTo: widthAnchor, multiplier: 0.5, constant: -12).isActive = true
+                power.leadingAnchor.constraint(equalTo: primary.trailingAnchor, constant: 24).isActive = true
+                power.topAnchor.constraint(equalTo: topAnchor).isActive = true
+            }
+            detail.topAnchor.constraint(equalTo: power.bottomAnchor, constant: 6).isActive = true
+        } else {
+            primary.trailingAnchor.constraint(equalTo: trailingAnchor).isActive = true
+            detail.topAnchor.constraint(equalTo: primary.bottomAnchor, constant: 4).isActive = true
+        }
+        update(nil, details: nil)
+    }
+    required init?(coder: NSCoder) { fatalError() }
+    func update(_ snapshot: MetricsSnapshot?, details: DetailedSnapshot?) {
+        switch kind {
+        case .memory:
+            if let memory = snapshot?.memory, memory.total > 0 {
+                let color: NSColor = memory.pressure == 4 ? .systemRed : (memory.pressure == 2 ? .systemOrange : .systemGreen)
+                primary.update(memory.percent, text: "\(MenuBarText.percent(memory.percent)) · \(memorySize(memory.occupied)) / \(memorySize(memory.total))", color: color)
+                detail.stringValue = "应用 \(memory.application.map(memorySize) ?? "--") · 固定 \(memory.wired.map(memorySize) ?? "--") · 压缩 \(memorySize(memory.compressed))\n\(memory.pressureLabel) · 交换 \(memory.swap.map(memorySize) ?? "--")"
+            } else {
+                primary.update(nil, text: "--"); detail.stringValue = "等待内存采样"
+            }
+        case .disk:
+            if let disk = snapshot?.disk, disk.total > 0 {
+                primary.update(disk.percent, text: MenuBarText.percent(disk.percent))
+                detail.stringValue = String(format: "已用 %.1f GB / 总容量 %.1f GB · 可用 %.1f GB", disk.used / 1e9, disk.total / 1e9, disk.free / 1e9)
+            } else {
+                primary.update(nil, text: "--"); detail.stringValue = "等待磁盘采样"
+            }
+        default:
+            let battery = details?.battery
+            primary.update(battery?.percent, text: battery.map { MenuBarText.percent($0.percent) } ?? (details == nil ? "--" : "无电池"), color: (battery?.percent ?? 100) <= 20 ? .systemRed : .systemTeal)
+            let watts = snapshot.flatMap(MenuBarText.freshPower)?.watts
+            powerScale.include(watts)
+            power?.update(watts, text: watts.map { String(format: "%.1f W", $0) } ?? "暂无有效读数", maximum: powerScale.maximum)
+            let batteryStatus = details == nil ? "正在读取电池信息" : (battery?.statusSummary ?? "无内置电池 · 外接电源")
+            let energy = details?.energyAvailable == true ? "进程 CPU 能耗为估算值，不含 GPU、磁盘及显示器。" : "当前系统未提供进程 CPU 能耗数据。"
+            detail.stringValue = "\(batteryStatus)\n\(energy)"
+        }
+        detail.toolTip = detail.stringValue
+    }
+}
+
 final class CoreUsageView: NSView {
     private(set) var values: [Double?] = []
     override var isFlipped: Bool { true }
@@ -349,8 +493,9 @@ final class ResourceDashboardView: NSView, NSTabViewDelegate {
     let disk = DiskUsageView()
     private let configuration: ResourceMonitorContentView
     private let cpuSummary = NSTextField(labelWithString: "等待 CPU 采样")
-    private let memorySummary = NSTextField(wrappingLabelWithString: "等待内存采样")
-    private let energySummary = NSTextField(wrappingLabelWithString: "等待电池信息")
+    private let memorySummary = MetricSummaryView(kind: .memory)
+    private let diskSummary = MetricSummaryView(kind: .disk)
+    private let energySummary = MetricSummaryView(kind: .battery)
     private var sample: MetricsSnapshot?
     private var details: DetailedSnapshot?
 
@@ -374,11 +519,11 @@ final class ResourceDashboardView: NSView, NSTabViewDelegate {
         ])
         addTab("总览与设置", view: overview)
         addTab("CPU", view: page(header: cpuSummary, height: 24, body: cpuTable))
-        addTab("内存", view: page(header: memorySummary, height: 48, body: memoryTable))
-        let diskPage = page(header: NSTextField(labelWithString: "目录容量"), height: 20, body: disk)
+        addTab("内存", view: page(header: memorySummary, height: memorySummary.preferredHeight, body: memoryTable))
+        let diskPage = page(header: diskSummary, height: diskSummary.preferredHeight, body: disk)
         addTab("磁盘", view: diskPage)
-        addTab("电池与能耗", view: page(header: energySummary, height: 64, body: energyTable))
-        for label in [cpuSummary, memorySummary, energySummary] { label.font = .systemFont(ofSize: 12); label.textColor = .secondaryLabelColor }
+        addTab("电池与能耗", view: page(header: energySummary, height: energySummary.preferredHeight, body: energyTable))
+        cpuSummary.font = .systemFont(ofSize: 12); cpuSummary.textColor = .secondaryLabelColor
     }
     required init?(coder: NSCoder) { fatalError() }
     @objc private func selectPage() { tabs.selectTabViewItem(at: navigation.selectedSegment) }
@@ -403,12 +548,6 @@ final class ResourceDashboardView: NSView, NSTabViewDelegate {
     }
     private func updateSummaries() {
         cpuSummary.stringValue = "CPU 总利用率 \(MenuBarText.percent(sample?.cpu))"
-        if let memory = sample?.memory {
-            memorySummary.stringValue = "内存 \(MenuBarText.percent(memory.percent)) · 已用 \(memorySize(memory.occupied)) / \(memorySize(memory.total)) · \(memory.pressureLabel)\n应用 \(memorySize(memory.application ?? 0)) · 固定 \(memorySize(memory.wired ?? 0)) · 压缩 \(memorySize(memory.compressed)) · 交换 \(memorySize(memory.swap ?? 0))"
-        }
-        let battery = details == nil ? "正在读取电池信息" : (details?.battery?.summary ?? "无内置电池 · 外接电源")
-        let watts = sample.flatMap(MenuBarText.freshPower).map { String(format: "供电侧 %.1f W", $0.watts) } ?? "供电功率暂无数据"
-        let energy = details?.energyAvailable == true ? "进程 CPU 能耗估算，不含 GPU、磁盘及显示器。" : "当前系统未提供进程能耗数据，可在 CPU 栏查看活跃进程。"
-        energySummary.stringValue = "\(battery)\n\(watts)\n\(energy)"
+        for view in [memorySummary, diskSummary, energySummary] { view.update(sample, details: details) }
     }
 }

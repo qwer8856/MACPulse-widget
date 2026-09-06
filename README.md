@@ -2,13 +2,13 @@
 
 原生 macOS 资源监视、可选菜单栏监控与桌面小组件。查看各核心 CPU、进程内存、目录容量、电池与进程 CPU 能耗，并由用户选择退出进程。资源监视使用普通窗口，不会置顶。
 
-当前版本：**3.3.0**。安装后的应用和小组件名称均为 **“系统状态”**。
+当前版本：**3.4.0**。安装后的应用和小组件名称均为 **“系统状态”**。
 
 ## 下载安装
 
-**[下载安装包：MacPulse Widget 3.3.0（M 系列 Mac）](https://github.com/qwer8856/MACPulse-widget/releases/download/v3.3.0/MACPulse-Widget-v3.3.0-macOS-arm64.zip)**
+**[下载安装包：MacPulse Widget 3.4.0（M 系列 Mac）](https://github.com/qwer8856/MACPulse-widget/releases/download/v3.4.0/MACPulse-Widget-v3.4.0-macOS-arm64.zip)**
 
-[版本发布页与校验文件](https://github.com/qwer8856/MACPulse-widget/releases/tag/v3.3.0)
+[版本发布页与校验文件](https://github.com/qwer8856/MACPulse-widget/releases/tag/v3.4.0)
 
 需要 Apple Silicon Mac（M 系列）和 macOS 14 或更新版本。
 
@@ -33,6 +33,8 @@
 | 电池与能耗 | 电池电量、供电与充电状态、系统可提供的预计剩余时间和健康状态，按 CPU 能耗估算降序排列进程 |
 
 资源窗口不显示各核心 CPU 图表；核心数量与各核心占用保留在菜单栏的 CPU 子菜单中。窗口采用紧凑布局，支持调整大小。
+
+内存、磁盘、电池和功率在资源总览、对应详情页及菜单栏子菜单中使用进度条并保留数值。内存和磁盘表示已用比例，电池表示剩余电量。功率条以 W 为单位，从 0–20 W 起步，超过刻度时向上扩展，运行期间不随读数下降而缩小；刻度上限不是设备额定功率，也不代表“功率利用率”。无电池、等待采样或功率读数过期时显示灰色条及状态文字。
 
 进程列表支持按名称或 PID 搜索，点击列标题可切换排序。系统可能限制部分进程的读取权限，底部显示可读取进程数量。
 

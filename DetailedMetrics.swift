@@ -85,7 +85,11 @@ struct BatteryMetric {
     }
 
     var summary: String {
-        var parts = ["电池 \(MenuBarText.percent(percent))", charging ? "正在充电" : (external ? "外接电源" : "电池供电")]
+        "电池 \(MenuBarText.percent(percent)) · \(statusSummary)"
+    }
+
+    var statusSummary: String {
+        var parts = [charging ? "正在充电" : (external ? "外接电源" : "电池供电")]
         if let minutesRemaining { parts.append("\(charging ? "充满约需" : "预计剩余") \(minutesRemaining / 60) 小时 \(minutesRemaining % 60) 分钟") }
         if let health {
             let labels = ["Good": "正常", "Fair": "一般", "Poor": "较差", "Check Battery": "建议检修"]

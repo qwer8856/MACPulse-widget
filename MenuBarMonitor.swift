@@ -60,8 +60,10 @@ enum MenuBarText {
 final class MenuMetricRow: NSView {
     private let value = NSTextField(labelWithString: "--")
     private let detail = NSTextField(labelWithString: "等待采样")
+    private let bar: MetricBar?
 
-    init(title: String, symbol: String, color: NSColor) {
+    init(title: String, symbol: String, color: NSColor, showsBar: Bool = true) {
+        bar = showsBar ? MetricBar(color: color) : nil
         super.init(frame: .zero)
         let icon = NSImageView(image: NSImage(systemSymbolName: symbol, accessibilityDescription: title)!)
         icon.contentTintColor = color
@@ -91,24 +93,35 @@ final class MenuMetricRow: NSView {
             detail.trailingAnchor.constraint(equalTo: trailingAnchor),
             detail.topAnchor.constraint(equalTo: topAnchor, constant: 23)
         ])
+        if let bar {
+            bar.translatesAutoresizingMaskIntoConstraints = false; addSubview(bar)
+            bar.setAccessibilityLabel(title)
+            NSLayoutConstraint.activate([
+                bar.leadingAnchor.constraint(equalTo: label.leadingAnchor), bar.trailingAnchor.constraint(equalTo: trailingAnchor),
+                bar.topAnchor.constraint(equalTo: topAnchor, constant: 42), bar.heightAnchor.constraint(equalToConstant: 6)
+            ])
+        }
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
-    func update(value: String, detail: String) {
+    func update(value: String, detail: String, reading: Double? = nil, maximum: Double = 100, color: NSColor? = nil) {
         self.value.stringValue = value
         self.detail.stringValue = detail
+        self.detail.toolTip = detail
+        bar?.update(reading, maximum: maximum, color: color, description: value + "，" + detail)
     }
 }
 
 final class MenuBarContentView: NSView {
-    private let cpu = MenuMetricRow(title: "CPU", symbol: "cpu", color: .systemCyan)
+    private let cpu = MenuMetricRow(title: "CPU", symbol: "cpu", color: .systemCyan, showsBar: false)
     private let memory = MenuMetricRow(title: "内存", symbol: "memorychip", color: .systemGreen)
     private let disk = MenuMetricRow(title: "磁盘", symbol: "internaldrive", color: .systemOrange)
     private let power = MenuMetricRow(title: "功率", symbol: "bolt.fill", color: .systemPink)
     private let battery = MenuMetricRow(title: "电池", symbol: "battery.100percent", color: .systemTeal)
     private let pressure = NSTextField(labelWithString: "压力未知")
     private let timestamp = NSTextField(labelWithString: "--:--:--")
+    private var powerScale = PowerScale()
     private let timeFormatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateFormat = "HH:mm:ss"
@@ -160,20 +173,22 @@ final class MenuBarContentView: NSView {
         if let minutes = metric.minutesRemaining {
             status += " · \(metric.charging ? "充满约需" : "预计剩余") \(minutes / 60) 小时 \(minutes % 60) 分钟"
         }
-        battery.update(value: MenuBarText.percent(metric.percent), detail: status)
+        battery.update(value: MenuBarText.percent(metric.percent), detail: status, reading: metric.percent, color: (metric.percent ?? 100) <= 20 ? .systemRed : .systemTeal)
     }
 
     func update(_ snapshot: MetricsSnapshot) {
         cpu.update(value: MenuBarText.percent(snapshot.cpu), detail: "\(ProcessInfo.processInfo.processorCount) 核")
         memory.update(value: MenuBarText.percent(snapshot.memory?.percent), detail: snapshot.memory.map {
             String(format: "已用 %.1f / %.0f GiB · 压缩 %.1f GiB", $0.occupied / 1_073_741_824, $0.total / 1_073_741_824, $0.compressed / 1_073_741_824)
-        } ?? "暂无数据")
+        } ?? "暂无数据", reading: snapshot.memory?.percent, color: snapshot.memory?.pressure == 4 ? .systemRed : (snapshot.memory?.pressure == 2 ? .systemOrange : .systemGreen))
         disk.update(value: MenuBarText.percent(snapshot.disk?.percent), detail: snapshot.disk.map {
             String(format: "可用 %.0f / %.0f GB", $0.free / 1e9, $0.total / 1e9)
-        } ?? "暂无数据")
+        } ?? "暂无数据", reading: snapshot.disk?.percent)
         let currentPower = MenuBarText.freshPower(snapshot)
+        powerScale.include(currentPower?.watts)
         power.update(value: currentPower.map { String(format: "%.1f W", $0.watts) } ?? "--",
-                     detail: currentPower == nil ? "暂无有效读数" : "供电侧估算")
+                     detail: currentPower == nil ? "暂无有效读数" : String(format: "供电侧估算 · 刻度 0–%.0f W", powerScale.maximum),
+                     reading: currentPower?.watts, maximum: powerScale.maximum)
         var pressureText = snapshot.memory?.pressureLabel ?? "压力未知"
         if let swap = snapshot.memory?.swap {
             pressureText += String(format: " · 交换空间 %.1f GiB", swap / 1_073_741_824)
