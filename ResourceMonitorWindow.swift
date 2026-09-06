@@ -2,7 +2,7 @@ import AppKit
 import ServiceManagement
 
 enum MenuBarMetric: String, CaseIterable {
-    case cpu, memory, disk, power
+    case cpu, memory, disk, power, battery
 
     static let font = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .medium)
 
@@ -12,11 +12,31 @@ enum MenuBarMetric: String, CaseIterable {
         case .memory: return "内存"
         case .disk: return "磁盘"
         case .power: return "功率"
+        case .battery: return "电池"
         }
     }
 
-    static func title(for metrics: Set<MenuBarMetric>, snapshot: MetricsSnapshot?) -> String {
-        allCases.filter { metrics.contains($0) }.map { $0.title(snapshot) }.joined(separator: "  ")
+    static func title(for metrics: Set<MenuBarMetric>, snapshot: MetricsSnapshot?, battery: BatteryMetric? = nil) -> String {
+        allCases.filter { metrics.contains($0) }.map { $0.title(snapshot, battery: battery) }.joined(separator: "  ")
+    }
+
+    static func attributedTitle(for metrics: Set<MenuBarMetric>, snapshot: MetricsSnapshot?, battery: BatteryMetric?) -> NSAttributedString {
+        let result = NSMutableAttributedString(string: "")
+        for metric in allCases where metrics.contains(metric) {
+            if result.length > 0 { result.append(NSAttributedString(string: "  ")) }
+            if metric == .battery, let battery,
+               let image = NSImage(systemSymbolName: battery.symbol, accessibilityDescription: battery.summary)?.withSymbolConfiguration(.preferringMonochrome()) {
+                let attachment = NSTextAttachment()
+                attachment.image = image
+                attachment.bounds = NSRect(x: 0, y: (font.capHeight - 11) / 2, width: 21, height: 11)
+                result.append(NSAttributedString(attachment: attachment))
+                result.append(NSAttributedString(string: " " + MenuBarText.percent(battery.percent)))
+            } else {
+                result.append(NSAttributedString(string: metric.title(snapshot, battery: battery)))
+            }
+        }
+        result.addAttributes([.font: font], range: NSRange(location: 0, length: result.length))
+        return result
     }
 
     static func width(for metrics: Set<MenuBarMetric>) -> CGFloat {
@@ -28,7 +48,7 @@ enum MenuBarMetric: String, CaseIterable {
         return ceil((maximum as NSString).size(withAttributes: [.font: font]).width) + 34
     }
 
-    func title(_ snapshot: MetricsSnapshot?) -> String {
+    func title(_ snapshot: MetricsSnapshot?, battery: BatteryMetric? = nil) -> String {
         switch self {
         case .cpu: return "CPU \(MenuBarText.percent(snapshot?.cpu))"
         case .memory: return "内存 \(MenuBarText.percent(snapshot?.memory?.percent))"
@@ -36,6 +56,7 @@ enum MenuBarMetric: String, CaseIterable {
         case .power:
             let power = snapshot.flatMap { MenuBarText.freshPower($0) }
             return "功率 " + (power.map { String(format: "%.1f W", $0.watts) } ?? "--")
+        case .battery: return "电池 " + MenuBarText.percent(battery?.percent)
         }
     }
 }
@@ -94,7 +115,7 @@ final class ResourceMonitorContentView: NSView {
         choices.orientation = .horizontal
         choices.distribution = .fillEqually
         choices.alignment = .centerY
-        choices.spacing = 10
+        choices.spacing = 4
         for toggle in metricToggles {
             toggle.target = self
             toggle.action = #selector(changeMetrics)
@@ -159,6 +180,12 @@ final class ResourceMonitorContentView: NSView {
         for (index, metric) in MenuBarMetric.allCases.enumerated() {
             metricToggles[index].state = preferences.metrics.contains(metric) ? .on : .off
         }
+    }
+
+    func updateBatteryAvailability(_ available: Bool?) {
+        guard let index = MenuBarMetric.allCases.firstIndex(of: .battery) else { return }
+        metricToggles[index].isEnabled = available == true
+        metricToggles[index].toolTip = available == nil ? "正在读取电池信息" : (available == true ? "显示电池图标和剩余电量" : "此 Mac 无内置电池")
     }
 
     func updateLoginItem(_ status: SMAppService.Status) {

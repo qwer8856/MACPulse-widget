@@ -99,16 +99,70 @@ final class MetricGaugeView: NSView {
     }
 }
 
+final class BatteryDetailsView: NSView {
+    private let values = (0..<8).map { _ in NSTextField(labelWithString: "暂无数据") }
+    private let timeLabel = NSTextField(labelWithString: "预计时间")
+
+    override init(frame: NSRect) {
+        super.init(frame: frame)
+        let names = ["设计容量", "充满容量", "状态", "预计时间", "健康度", "循环次数", "电池温度", "电池功率"]
+        for (index, name) in names.enumerated() {
+            let label = index == 3 ? timeLabel : NSTextField(labelWithString: name)
+            let value = values[index]
+            label.font = .systemFont(ofSize: 12); label.textColor = .secondaryLabelColor
+            value.font = .monospacedDigitSystemFont(ofSize: 12, weight: .medium)
+            value.alignment = .right; value.lineBreakMode = .byTruncatingTail
+            for view in [label, value] { view.translatesAutoresizingMaskIntoConstraints = false; addSubview(view) }
+            NSLayoutConstraint.activate([
+                label.leadingAnchor.constraint(equalTo: leadingAnchor), label.topAnchor.constraint(equalTo: topAnchor, constant: CGFloat(index) * 27),
+                label.widthAnchor.constraint(equalToConstant: 92),
+                value.leadingAnchor.constraint(equalTo: label.trailingAnchor, constant: 12), value.trailingAnchor.constraint(equalTo: trailingAnchor),
+                value.centerYAnchor.constraint(equalTo: label.centerYAnchor)
+            ])
+        }
+    }
+    required init?(coder: NSCoder) { fatalError() }
+    func update(_ battery: BatteryMetric?, sampled: Bool) {
+        timeLabel.stringValue = battery?.charging == true ? "距离充满" : (battery?.external == false ? "预计续航" : "预计时间")
+        guard let battery else {
+            for value in values { value.stringValue = "--"; value.toolTip = nil }
+            values[2].stringValue = sampled ? "无内置电池 · 外接电源" : "正在读取电池信息"
+            return
+        }
+        let telemetry = battery.telemetry
+        values[0].stringValue = telemetry?.designCapacityMAh.map { String(format: "%.0f mAh", $0) } ?? "暂无数据"
+        values[1].stringValue = telemetry?.fullChargeCapacityMAh.map { String(format: "%.0f mAh", $0) } ?? "暂无数据"
+        values[2].stringValue = battery.external || battery.charging ? battery.stateLabel : "正在放电 · 电池供电"
+        if let minutes = battery.minutesRemaining {
+            values[3].stringValue = "约 \(minutes / 60) 小时 \(minutes % 60) 分钟"
+        } else {
+            values[3].stringValue = battery.charged && battery.external ? "已充满" : (battery.external && !battery.charging ? "未充电" : "暂无数据")
+        }
+        values[4].stringValue = [telemetry?.healthPercent.map { MenuBarText.percent($0) }, battery.healthLabel].compactMap { $0 }.joined(separator: " · ")
+        if values[4].stringValue.isEmpty { values[4].stringValue = "暂无数据" }
+        values[5].stringValue = telemetry?.cycleCount.map { "\($0) 次" } ?? "暂无数据"
+        values[6].stringValue = telemetry?.temperatureCelsius.map { String(format: "%.1f °C", $0) } ?? "暂无数据"
+        values[7].stringValue = telemetry?.watts.map { watts in
+            String(format: "%@ %.1f W", watts > 0 ? "充电" : (watts < 0 ? "放电" : "电池净功率"), abs(watts))
+        } ?? "暂无数据"
+        for value in values { value.toolTip = value.stringValue }
+        values[4].toolTip = "充满容量 / 设计容量，与系统健康状态一同显示"
+        values[7].toolTip = "电池电压与电流估算的当前净功率；不代表整机或充电器功率，更新速度取决于传感器"
+    }
+}
+
 final class MetricSummaryView: NSView {
     let primary: MetricGaugeView
     private let detail = NSTextField(wrappingLabelWithString: "等待采样")
     private let kind: StatusDetail
+    private let batteryDetails: BatteryDetailsView?
     private var powerScale = PowerScale()
     var preferredHeight: CGFloat {
-        switch kind { case .memory: return 82; case .disk: return 74; case .power: return 98; default: return 108 }
+        switch kind { case .memory: return 82; case .disk: return 74; case .power: return 98; case .battery: return 270; default: return 108 }
     }
     init(kind: StatusDetail, compact: Bool = false) {
         self.kind = kind
+        batteryDetails = kind == .battery ? BatteryDetailsView(frame: .zero) : nil
         switch kind {
         case .memory: primary = MetricGaugeView(title: "已用内存", color: .systemGreen)
         case .disk: primary = MetricGaugeView(title: "已用空间", color: .systemOrange)
@@ -117,11 +171,12 @@ final class MetricSummaryView: NSView {
         }
         super.init(frame: .zero)
         detail.font = .systemFont(ofSize: 11); detail.textColor = .secondaryLabelColor
-        for view in [primary, detail] { view.translatesAutoresizingMaskIntoConstraints = false; addSubview(view) }
+        let body: NSView = batteryDetails ?? detail
+        for view in [primary, body] { view.translatesAutoresizingMaskIntoConstraints = false; addSubview(view) }
         NSLayoutConstraint.activate([
             primary.leadingAnchor.constraint(equalTo: leadingAnchor), primary.trailingAnchor.constraint(equalTo: trailingAnchor), primary.topAnchor.constraint(equalTo: topAnchor),
-            detail.topAnchor.constraint(equalTo: primary.bottomAnchor, constant: 6),
-            detail.leadingAnchor.constraint(equalTo: leadingAnchor), detail.trailingAnchor.constraint(equalTo: trailingAnchor), detail.bottomAnchor.constraint(equalTo: bottomAnchor)
+            body.topAnchor.constraint(equalTo: primary.bottomAnchor, constant: 6),
+            body.leadingAnchor.constraint(equalTo: leadingAnchor), body.trailingAnchor.constraint(equalTo: trailingAnchor), body.bottomAnchor.constraint(equalTo: bottomAnchor)
         ])
         update(nil, details: nil)
     }
@@ -152,7 +207,7 @@ final class MetricSummaryView: NSView {
         default:
             let battery = details?.battery
             primary.update(battery?.percent, text: battery.map { MenuBarText.percent($0.percent) } ?? (details == nil ? "--" : "无电池"), color: (battery?.percent ?? 100) <= 20 ? .systemRed : .systemTeal)
-            detail.stringValue = details == nil ? "正在读取电池信息" : (battery?.statusSummary.replacingOccurrences(of: " · ", with: "\n") ?? "无内置电池 · 外接电源")
+            batteryDetails?.update(battery, sampled: details != nil)
         }
         detail.toolTip = detail.stringValue
     }
@@ -378,158 +433,6 @@ final class ProcessTableView: NSView, NSTableViewDataSource, NSTableViewDelegate
     }
 }
 
-final class DiskUsageView: NSView, NSTableViewDataSource, NSTableViewDelegate {
-    let table = NSTableView()
-    private let pathLabel = NSTextField(labelWithString: "")
-    private let status = NSTextField(labelWithString: "尚未扫描")
-    private var scanButton: NSButton!
-    private var cancelButton: NSButton!
-    private(set) var root = FileManager.default.homeDirectoryForCurrentUser
-    private(set) var result: DiskScanResult?
-    private(set) var rows: [DiskUsageItem] = []
-    private var cancellation: DiskScanCancellation?
-    private var generation = UUID()
-    private var automaticScanTimer: Timer?
-    private var completedAt: Date?
-    private var scanPolicy = DiskScanPolicy()
-    private let queue = DispatchQueue(label: "local.macpulse.disk-scan", qos: .utility)
-    var onChooseFolder: (() -> Void)?
-    private let compact: Bool
-
-    init(compact: Bool = false, root: URL = FileManager.default.homeDirectoryForCurrentUser) {
-        self.compact = compact
-        self.root = root
-        super.init(frame: .zero)
-        let choose = toolButton("folder", "选择扫描目录", target: self, action: #selector(chooseFolder))
-        let up = toolButton("arrow.up", "扫描上级目录", target: self, action: #selector(goUp))
-        scanButton = toolButton("arrow.clockwise", "扫描当前目录", target: self, action: #selector(scanCurrent))
-        cancelButton = toolButton("xmark", "取消扫描", target: self, action: #selector(cancelScan))
-        cancelButton.isEnabled = false
-        let reveal = toolButton("arrow.up.forward.square", "在 Finder 中显示所选项目", target: self, action: #selector(revealSelected))
-        let tools = NSStackView(views: [choose, up, scanButton, cancelButton, reveal])
-        tools.orientation = .horizontal; tools.spacing = 6
-        pathLabel.lineBreakMode = .byTruncatingMiddle; pathLabel.font = .systemFont(ofSize: 12)
-        status.font = .systemFont(ofSize: 11); status.textColor = .secondaryLabelColor
-        for (id, title, width) in [("name", "项目", compact ? 230.0 : 390.0), ("bytes", "已分配容量", compact ? 120.0 : 150.0), ("share", "占已统计容量", 130.0)] {
-            let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(id))
-            column.title = title; column.width = width; column.minWidth = id == "name" ? (compact ? 140 : 200) : 120
-            column.sortDescriptorPrototype = NSSortDescriptor(key: id, ascending: false)
-            table.addTableColumn(column)
-        }
-        table.dataSource = self; table.delegate = self; table.rowHeight = 29
-        table.usesAlternatingRowBackgroundColors = true
-        if compact { table.columnAutoresizingStyle = .noColumnAutoresizing }
-        status.lineBreakMode = .byTruncatingTail
-        table.target = self; table.doubleAction = #selector(drillDown)
-        table.sortDescriptors = [NSSortDescriptor(key: "bytes", ascending: false)]
-        let scroll = NSScrollView()
-        scroll.documentView = table; scroll.hasVerticalScroller = true; scroll.hasHorizontalScroller = !compact; scroll.borderType = .bezelBorder
-        for view in [tools, pathLabel, scroll, status] { view.translatesAutoresizingMaskIntoConstraints = false; addSubview(view) }
-        NSLayoutConstraint.activate([
-            tools.topAnchor.constraint(equalTo: topAnchor), tools.leadingAnchor.constraint(equalTo: leadingAnchor),
-            pathLabel.topAnchor.constraint(equalTo: tools.bottomAnchor, constant: 10), pathLabel.leadingAnchor.constraint(equalTo: leadingAnchor), pathLabel.trailingAnchor.constraint(equalTo: trailingAnchor),
-            scroll.topAnchor.constraint(equalTo: pathLabel.bottomAnchor, constant: 10), scroll.leadingAnchor.constraint(equalTo: leadingAnchor), scroll.trailingAnchor.constraint(equalTo: trailingAnchor),
-            status.topAnchor.constraint(equalTo: scroll.bottomAnchor, constant: 8), status.bottomAnchor.constraint(equalTo: bottomAnchor), status.leadingAnchor.constraint(equalTo: leadingAnchor), status.trailingAnchor.constraint(equalTo: trailingAnchor)
-        ])
-        pathLabel.stringValue = root.path
-    }
-    required init?(coder: NSCoder) { fatalError() }
-    override func layout() {
-        super.layout()
-        guard compact, let scroll = table.enclosingScrollView else { return }
-        let available = scroll.contentSize.width - table.intercellSpacing.width * 3 - 2
-        for (column, width) in zip(table.tableColumns, [max(140, available - 240), 120, 120]) where abs(column.width - width) > 0.5 { column.width = width }
-    }
-    deinit { automaticScanTimer?.invalidate(); cancellation?.cancel() }
-    func requestAutomaticScan() {
-        automaticScanTimer?.invalidate()
-        guard cancellation == nil, completedAt.map({ Date().timeIntervalSince($0) < 60 }) != true else { return }
-        let timer = Timer(timeInterval: 0.4, repeats: false) { [weak self] _ in
-            guard let self else { return }
-            self.automaticScanTimer = nil
-            guard self.window?.isVisible == true, !self.isHiddenOrHasHiddenAncestor, self.cancellation == nil else { return }
-            self.scan(self.root)
-        }
-        automaticScanTimer = timer
-        RunLoop.main.add(timer, forMode: .common); RunLoop.main.add(timer, forMode: .eventTracking)
-    }
-    func cancelPendingAutomaticScan() { automaticScanTimer?.invalidate(); automaticScanTimer = nil }
-    func scanUserSelected(_ directory: URL) {
-        scanPolicy = DiskScanPolicy(selectedRoot: directory)
-        scan(directory)
-    }
-    func scan(_ directory: URL) {
-        cancelPendingAutomaticScan()
-        cancellation?.cancel()
-        let cancellation = DiskScanCancellation(), token = UUID()
-        self.cancellation = cancellation; generation = token; completedAt = nil
-        if root != directory { result = nil; rows = []; table.reloadData() }
-        root = directory; pathLabel.stringValue = directory.path; pathLabel.toolTip = directory.path
-        status.stringValue = "扫描中…"; scanButton.isEnabled = false; cancelButton.isEnabled = true
-        let policy = scanPolicy
-        queue.async { [weak self] in
-            let result = DiskUsageScanner.scan(root: directory, cancellation: cancellation, policy: policy) { progress in
-                RunLoop.main.perform(inModes: [.default, .eventTracking, .modalPanel]) { [weak self] in if self?.generation == token { self?.update(progress) } }
-            }
-            RunLoop.main.perform(inModes: [.default, .eventTracking, .modalPanel]) { [weak self] in if self?.generation == token { self?.update(result) } }
-        }
-    }
-    func update(_ result: DiskScanResult) {
-        let selected = rows.indices.contains(table.selectedRow) ? rows[table.selectedRow].url : nil
-        self.result = result
-        root = result.root; pathLabel.stringValue = root.path; pathLabel.toolTip = root.path
-        let descriptor = table.sortDescriptors.first
-        rows = result.items.sorted {
-            if descriptor?.key == "name" { return descriptor?.ascending == true ? $0.url.lastPathComponent < $1.url.lastPathComponent : $0.url.lastPathComponent > $1.url.lastPathComponent }
-            if $0.bytes == $1.bytes { return $0.url.lastPathComponent < $1.url.lastPathComponent }
-            return descriptor?.ascending == true ? $0.bytes < $1.bytes : $0.bytes > $1.bytes
-        }
-        table.reloadData()
-        if let selected, let index = rows.firstIndex(where: { $0.url == selected }) { table.selectRowIndexes(IndexSet(integer: index), byExtendingSelection: false) }
-        else { table.deselectAll(nil) }
-        let state = result.cancelled ? "已取消，结果不完整" : (result.finished ? "扫描完成" : "扫描中…")
-        let counts = "\(state) · \(result.visited) 项 · \(memorySize(Double(result.total)))"
-        status.stringValue = counts + (result.protectedItems > 0 ? " · 已跳过 \(result.protectedItems) 项隐私目录" : " · \(result.skipped) 项无法访问或已跳过")
-        status.toolTip = counts + " · 共 \(result.skipped) 项无法访问或已跳过，其中 \(result.protectedItems) 项隐私目录"
-        scanButton.isEnabled = result.finished; cancelButton.isEnabled = !result.finished
-        if result.finished {
-            cancellation = nil
-            completedAt = result.cancelled ? nil : (completedAt ?? Date())
-        }
-    }
-    func cancel() { cancelPendingAutomaticScan(); cancellation?.cancel() }
-    @objc private func scanCurrent() { scan(root) }
-    @objc private func cancelScan() { cancel() }
-    @objc private func goUp() { scan(root.deletingLastPathComponent()) }
-    @objc private func chooseFolder() {
-        if let onChooseFolder { onChooseFolder(); return }
-        guard let window else { return }
-        let panel = NSOpenPanel(); panel.canChooseFiles = false; panel.canChooseDirectories = true
-        panel.directoryURL = root; panel.prompt = "扫描"
-        panel.beginSheetModal(for: window) { [weak self] response in if response == .OK, let url = panel.url { self?.scanUserSelected(url) } }
-    }
-    @objc private func drillDown() {
-        guard rows.indices.contains(table.clickedRow) else { return }
-        let row = rows[table.clickedRow]
-        if row.isDirectory { scan(row.url) } else { NSWorkspace.shared.activateFileViewerSelecting([row.url]) }
-    }
-    @objc private func revealSelected() { if rows.indices.contains(table.selectedRow) { NSWorkspace.shared.activateFileViewerSelecting([rows[table.selectedRow].url]) } }
-    func numberOfRows(in tableView: NSTableView) -> Int { rows.count }
-    func tableView(_ tableView: NSTableView, sortDescriptorsDidChange oldDescriptors: [NSSortDescriptor]) { if let result { update(result) } }
-    func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
-        guard rows.indices.contains(row), let id = tableColumn?.identifier else { return nil }
-        let cell = centeredTableCell(in: table, identifier: id)
-        let field = cell.textField!
-        field.font = id.rawValue == "name" ? .systemFont(ofSize: 12) : .monospacedDigitSystemFont(ofSize: 12, weight: .regular)
-        field.lineBreakMode = .byTruncatingMiddle; field.alignment = id.rawValue == "name" ? .left : .right
-        let item = rows[row]
-        if id.rawValue == "name" { field.stringValue = item.url.lastPathComponent + (item.isDirectory ? "/" : "") }
-        else if id.rawValue == "bytes" { field.stringValue = memorySize(Double(item.bytes)) }
-        else { field.stringValue = (result?.total ?? 0) > 0 ? String(format: "%.1f%%", Double(item.bytes) / Double(result!.total) * 100) : "--" }
-        field.toolTip = item.url.path
-        return cell
-    }
-}
 
 final class ResourceDashboardView: NSView, NSTabViewDelegate {
     let tabs = NSTabView()
@@ -537,7 +440,6 @@ final class ResourceDashboardView: NSView, NSTabViewDelegate {
     let cpuTable = ProcessTableView(mode: .cpu)
     let memoryTable = ProcessTableView(mode: .memory)
     let energyTable = ProcessTableView(mode: .energy)
-    let disk = DiskUsageView()
     private let configuration: ResourceMonitorContentView
     private let cpuSummary = NSTextField(labelWithString: "等待 CPU 采样")
     private let memorySummary = MetricSummaryView(kind: .memory)
@@ -568,7 +470,7 @@ final class ResourceDashboardView: NSView, NSTabViewDelegate {
         addTab("总览与设置", view: overview)
         addTab("CPU", view: page(header: cpuSummary, height: 24, body: cpuTable))
         addTab("内存", view: page(header: memorySummary, height: memorySummary.preferredHeight, body: memoryTable))
-        let diskPage = page(header: diskSummary, height: diskSummary.preferredHeight, body: disk)
+        let diskPage = page(header: diskSummary, height: diskSummary.preferredHeight, body: NSView())
         addTab("磁盘", view: diskPage)
         addTab("功率", view: page(header: energySummary, height: energySummary.preferredHeight, body: energyTable))
         addTab("电池", view: page(header: batterySummary, height: batterySummary.preferredHeight, body: NSView()))
@@ -584,8 +486,6 @@ final class ResourceDashboardView: NSView, NSTabViewDelegate {
     }
     func prepareVisiblePage() {
         updateVisibleProcesses()
-        if navigation.selectedSegment == 3 { disk.requestAutomaticScan() }
-        else { disk.cancelPendingAutomaticScan() }
     }
     private func addTab(_ label: String, view: NSView) {
         let tab = NSTabViewItem(identifier: label); tab.label = label; tab.view = view; tabs.addTabViewItem(tab)

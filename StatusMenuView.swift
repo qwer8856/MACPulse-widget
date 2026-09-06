@@ -9,17 +9,17 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
     private(set) var items: [StatusDetail: NSMenuItem] = [:]
     private(set) var panels: [StatusDetail: StatusDetailView] = [:]
     private var snapshot: MetricsSnapshot?
-    private var details: DetailedSnapshot?
+    private var battery: BatteryMetric?
+    private var hasBatterySample = false
+    private var batterySymbol = StatusDetail.battery.symbol
     private var highlightTimer: Timer?
     var view: NSView { options }
     var toggles: [NSButton] { options.toggles }
     var cores: CoreUsageView { panels[.cpu]!.cores }
-    var disk: DiskUsageView { panels[.disk]!.disk }
     var onSelection: ((Set<MenuBarMetric>) -> Void)?
     var onOpenMonitor: ((Int) -> Void)?
     var onDisable: (() -> Void)?
     var onQuit: (() -> Void)?
-    var onChooseFolder: (() -> Void)?
     private let timeFormatter: DateFormatter = {
         let formatter = DateFormatter(); formatter.dateFormat = "HH:mm:ss"; return formatter
     }()
@@ -46,7 +46,6 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
             submenu.autoenablesItems = false
             let panel = StatusDetailView(kind: kind)
             panel.onOpenMonitor = { [weak self] page in self?.menu.cancelTracking(); self?.onOpenMonitor?(page) }
-            if kind == .disk { panel.disk.onChooseFolder = { [weak self] in self?.menu.cancelTracking(); self?.onChooseFolder?() } }
             let content = NSMenuItem(); content.view = panel; submenu.addItem(content)
             item.submenu = submenu; items[kind] = item; panels[kind] = panel; menu.addItem(item)
         }
@@ -62,6 +61,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         options.onDisable = { [weak self] in self?.menu.cancelTracking(); self?.onDisable?() }
         options.onQuit = { [weak self] in self?.menu.cancelTracking(); self?.onQuit?() }
         updateRows()
+        options.updateBatteryAvailability(nil)
     }
     func updateSelection(_ selected: Set<MenuBarMetric>) { options.updateSelection(selected) }
     func highlight(_ item: NSMenuItem?) {
@@ -105,8 +105,21 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         updateRows()
     }
     func updateDetails(_ details: DetailedSnapshot?) {
-        self.details = details
+        if let details { updateBattery(details.battery) }
         panels.values.forEach { $0.updateDetails(details) }
+        updateRows()
+    }
+    func updateBattery(_ battery: BatteryMetric?) {
+        self.battery = battery
+        hasBatterySample = true
+        options.updateBatteryAvailability(battery != nil)
+        let symbol = battery?.symbol ?? StatusDetail.battery.symbol
+        if symbol != batterySymbol {
+            let image = NSImage(systemSymbolName: symbol, accessibilityDescription: "电池")?.withSymbolConfiguration(.preferringMonochrome())
+            image?.size = NSSize(width: 15, height: 15)
+            items[.battery]?.image = image
+            batterySymbol = symbol
+        }
         updateRows()
     }
     private func updateRows() {
@@ -126,8 +139,8 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
                 value = snapshot.flatMap(MenuBarText.freshPower).map { String(format: "%.1f W", $0.watts) } ?? "--"
                 detail = "供电侧估算"
             case .battery:
-                value = details?.battery.map { MenuBarText.percent($0.percent) } ?? (details == nil ? "--" : "无电池")
-                detail = details == nil ? "正在读取电池信息" : (details?.battery?.stateLabel ?? "无内置电池 · 外接电源")
+                value = battery.map { MenuBarText.percent($0.percent) } ?? (hasBatterySample ? "无电池" : "--")
+                detail = hasBatterySample ? (battery?.stateLabel ?? "无内置电池 · 外接电源") : "正在读取电池信息"
             }
             // Render both lines together: AppKit can drop a separate subtitle when an attributed title changes during tracking.
             let title = NSMutableAttributedString(string: kind.title + "\n", attributes: [.font: NSFont.systemFont(ofSize: 13, weight: .medium)])
@@ -177,6 +190,11 @@ private final class StatusMenuOptionsView: NSView {
     }
     func updateSelection(_ selected: Set<MenuBarMetric>) {
         for (index, metric) in MenuBarMetric.allCases.enumerated() { toggles[index].state = selected.contains(metric) ? .on : .off }
+    }
+    func updateBatteryAvailability(_ available: Bool?) {
+        guard let index = MenuBarMetric.allCases.firstIndex(of: .battery) else { return }
+        toggles[index].isEnabled = available == true
+        toggles[index].toolTip = available == nil ? "正在读取电池信息" : (available == true ? "显示电池图标和剩余电量" : "此 Mac 无内置电池")
     }
     @objc private func changeSelection() { onSelection?(Set(MenuBarMetric.allCases.enumerated().compactMap { toggles[$0.offset].state == .on ? $0.element : nil })) }
     @objc private func openMonitor() { onOpenMonitor?() }

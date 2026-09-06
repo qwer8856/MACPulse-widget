@@ -29,7 +29,6 @@ enum StatusDetail: String, CaseIterable {
 final class StatusDetailView: NSView {
     let kind: StatusDetail
     let cores = CoreUsageView()
-    lazy var disk = DiskUsageView(compact: true)
     private(set) var processes: ProcessTableView?
     private let title = NSTextField(labelWithString: "")
     private let summary = NSTextField(wrappingLabelWithString: "等待采样")
@@ -42,7 +41,7 @@ final class StatusDetailView: NSView {
     init(kind: StatusDetail) {
         self.kind = kind
         metricSummary = kind == .cpu ? nil : MetricSummaryView(kind: kind, compact: true)
-        super.init(frame: NSRect(x: 0, y: 0, width: 520, height: kind == .battery ? 206 : 500))
+        super.init(frame: NSRect(x: 0, y: 0, width: 520, height: kind == .disk ? 172 : (kind == .battery ? 368 : 500)))
         title.stringValue = kind.title
         title.font = .systemFont(ofSize: 13, weight: .semibold)
         summary.font = .systemFont(ofSize: 11)
@@ -58,14 +57,11 @@ final class StatusDetailView: NSView {
             header.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 10), header.heightAnchor.constraint(equalToConstant: metricSummary?.preferredHeight ?? 28),
             open.leadingAnchor.constraint(equalTo: title.leadingAnchor), open.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -14)
         ])
-        if kind == .battery { return }
-        let body: NSView
-        if kind == .disk { body = disk }
-        else {
-            let mode: ProcessSort = kind == .cpu ? .cpu : (kind == .memory ? .memory : .energy)
-            let table = ProcessTableView(mode: mode, compact: true, allowsTermination: false)
-            processes = table; body = table
-        }
+        if kind == .battery || kind == .disk { return }
+        let mode: ProcessSort = kind == .cpu ? .cpu : (kind == .memory ? .memory : .energy)
+        let table = ProcessTableView(mode: mode, compact: true, allowsTermination: false)
+        processes = table
+        let body: NSView = table
         body.translatesAutoresizingMaskIntoConstraints = false; addSubview(body)
         var bodyTop = header.bottomAnchor
         if kind == .cpu {
@@ -90,14 +86,11 @@ final class StatusDetailView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        if window != nil {
-            refresh(reloadProcesses: true)
-            if kind == .disk { disk.requestAutomaticScan() }
-        } else if kind == .disk { disk.cancelPendingAutomaticScan() }
+        if window != nil { refresh(reloadProcesses: true) }
     }
     func update(_ snapshot: MetricsSnapshot) { self.snapshot = snapshot; refresh(reloadProcesses: false) }
     func prepareForPresentation() { isPresented = true; refresh(reloadProcesses: true) }
-    func endPresentation() { isPresented = false; if kind == .disk { disk.cancelPendingAutomaticScan() } }
+    func endPresentation() { isPresented = false }
     func updateDetails(_ details: DetailedSnapshot?) {
         self.details = details
         refresh(reloadProcesses: true)

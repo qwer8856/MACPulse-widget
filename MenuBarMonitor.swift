@@ -2,6 +2,7 @@ import AppKit
 
 final class LiveMetricsMonitor {
     var onSample: ((MetricsSnapshot) -> Void)?
+    var onBatterySample: ((BatteryMetric?) -> Void)?
     private let queue = DispatchQueue(label: "local.macpulse.menu-sampling", qos: .utility)
     private var timer: DispatchSourceTimer?
     private var generation = UUID()
@@ -22,9 +23,11 @@ final class LiveMetricsMonitor {
                 collector.reset()
             }
             let snapshot = collector.sample(now: now)
+            let battery = BatteryMetric.read()
             lastSample = now
             RunLoop.main.perform(inModes: [.default, .eventTracking, .modalPanel]) { [weak self] in
                 guard let self, self.generation == generation, self.timer != nil else { return }
+                self.onBatterySample?(battery)
                 self.onSample?(snapshot)
             }
         }

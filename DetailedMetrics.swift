@@ -50,6 +50,58 @@ struct ProcessReading {
     }
 }
 
+struct BatteryTelemetry {
+    let designCapacityMAh: Double?
+    let fullChargeCapacityMAh: Double?
+    let cycleCount: Int?
+    let temperatureCelsius: Double?
+    let voltage: Double?
+    let currentAmps: Double?
+
+    var healthPercent: Double? {
+        guard let designCapacityMAh, let fullChargeCapacityMAh else { return nil }
+        return min(100, fullChargeCapacityMAh / designCapacityMAh * 100)
+    }
+    var watts: Double? {
+        guard let voltage, let currentAmps else { return nil }
+        return voltage * currentAmps
+    }
+    static func decode(_ properties: [String: Any]) -> BatteryTelemetry {
+        let data = properties["BatteryData"] as? [String: Any] ?? [:]
+        func positive(_ values: Any?...) -> Double? {
+            values.compactMap { ($0 as? NSNumber)?.doubleValue }.first { $0.isFinite && $0 > 0 }
+        }
+        let design = positive(properties["DesignCapacity"], data["DesignCapacity"])
+        let full = positive(properties["AppleRawMaxCapacity"], properties["NominalChargeCapacity"], data["NominalChargeCapacity"], data["FullChargeCapacity"])
+        let rawTemperature = (properties["Temperature"] as? NSNumber)?.doubleValue
+        let temperature = rawTemperature.map { $0 / 100 }
+        let voltage = positive(properties["Voltage"]).map { $0 / 1000 }
+        let rawCurrent = (properties["InstantAmperage"] as? NSNumber) ?? (properties["Amperage"] as? NSNumber)
+        // IORegistry may encode negative discharge current as an unsigned two's-complement integer.
+        let current = rawCurrent.flatMap { number -> Double? in
+            guard number.doubleValue.isFinite else { return nil }
+            let signed = number.int64Value
+            let milliamps = signed > Int32.max && signed <= UInt32.max ? Int64(Int32(bitPattern: number.uint32Value)) : signed
+            return Double(milliamps) / 1000
+        }
+        let cycles = (properties["CycleCount"] as? NSNumber)?.intValue
+        return BatteryTelemetry(designCapacityMAh: design, fullChargeCapacityMAh: full,
+            cycleCount: cycles.flatMap { $0 >= 0 ? $0 : nil },
+            temperatureCelsius: temperature.flatMap { $0.isFinite && (-20...100).contains($0) ? $0 : nil },
+            voltage: voltage.flatMap { $0 <= 30 ? $0 : nil },
+            currentAmps: current.flatMap { abs($0) <= 50 ? $0 : nil })
+    }
+    static func read() -> BatteryTelemetry? {
+        let service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("AppleSmartBattery"))
+        guard service != 0 else { return nil }
+        defer { IOObjectRelease(service) }
+        var properties: Unmanaged<CFMutableDictionary>?
+        guard IORegistryEntryCreateCFProperties(service, &properties, kCFAllocatorDefault, 0) == KERN_SUCCESS,
+              let dictionary = properties?.takeRetainedValue() as? [String: Any] else { return nil }
+        return decode(dictionary)
+    }
+}
+
 struct BatteryMetric {
     let percent: Double?
     let charging: Bool
@@ -57,6 +109,7 @@ struct BatteryMetric {
     let minutesRemaining: Int?
     let health: String?
     var charged: Bool = false
+    var telemetry: BatteryTelemetry? = nil
 
     static func decode(_ info: [String: Any]) -> BatteryMetric? {
         guard info[kIOPSTypeKey] as? String == kIOPSInternalBatteryType,
@@ -81,7 +134,10 @@ struct BatteryMetric {
               let sources = IOPSCopyPowerSourcesList(info)?.takeRetainedValue() as? [CFTypeRef] else { return nil }
         for source in sources {
             if let description = IOPSGetPowerSourceDescription(info, source)?.takeUnretainedValue() as? [String: Any],
-               let battery = decode(description) { return battery }
+               var battery = decode(description) {
+                battery.telemetry = BatteryTelemetry.read()
+                return battery
+            }
         }
         return nil
     }
@@ -90,13 +146,26 @@ struct BatteryMetric {
         "电池 \(MenuBarText.percent(percent)) · \(statusSummary)"
     }
 
+    var symbol: String {
+        if charging { return "battery.100percent.bolt" }
+        guard let percent else { return "battery.0percent" }
+        switch percent {
+        case ..<10: return "battery.0percent"
+        case ..<35: return "battery.25percent"
+        case ..<65: return "battery.50percent"
+        case ..<90: return "battery.75percent"
+        default: return "battery.100percent"
+        }
+    }
+
     var statusSummary: String {
         var parts = [powerSummary]
-        if let health {
-            let labels = ["Good": "正常", "Fair": "一般", "Poor": "较差", "Check Battery": "建议检修"]
-            parts.append("健康状态：\(labels[health] ?? health)")
-        }
+        if let healthLabel { parts.append("健康状态：\(healthLabel)") }
         return parts.joined(separator: " · ")
+    }
+
+    var healthLabel: String? {
+        health.map { ["Good": "正常", "Fair": "一般", "Poor": "较差", "Check Battery": "建议检修"][$0] ?? $0 }
     }
 
     var stateLabel: String {

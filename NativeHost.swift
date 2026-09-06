@@ -13,6 +13,8 @@ final class NativeHostDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
     private let loginItem = LoginItemController()
     private var launchedAtLogin = false
     private var snapshot: MetricsSnapshot?
+    private var battery: BatteryMetric?
+    private var hasBatterySample = false
     private var statusMenuIsOpen = false
     private var resourceWindowNeedsSampling = false
 
@@ -54,6 +56,7 @@ final class NativeHostDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
             self.dashboard?.update(snapshot)
             self.updateStatusItem()
         }
+        monitor.onBatterySample = { [weak self] battery in self?.updateBattery(battery) }
         monitor.start()
         WidgetCenter.shared.reloadAllTimelines()
     }
@@ -80,13 +83,12 @@ final class NativeHostDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
             self?.showResourceMonitor()
             self?.dashboard?.tabs.selectTabViewItem(at: page)
         }
-        statusMenuView.onChooseFolder = { [weak self] in self?.chooseMenuDiskFolder() }
         statusMenuView.onDisable = { [weak self] in self?.disableMenuBar() }
         statusMenuView.onQuit = { [weak self] in self?.quit() }
         updateStatusItem()
     }
 
-    func applicationWillTerminate(_ notification: Notification) { monitor.stop(); detailMonitor.stop(); dashboard?.disk.cancel(); statusMenuView.disk.cancel() }
+    func applicationWillTerminate(_ notification: Notification) { monitor.stop(); detailMonitor.stop() }
 
     func applicationDidBecomeActive(_ notification: Notification) {
         resourceView?.updateLoginItem(loginItem.status)
@@ -98,10 +100,20 @@ final class NativeHostDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         statusMenuView.updateSelection(selected)
         // Keep the status item's anchor stable until the user closes its menu.
         guard !statusMenuIsOpen else { return }
-        let title = MenuBarMetric.title(for: selected, snapshot: snapshot)
-        statusItem.length = MenuBarMetric.width(for: selected)
-        statusItem.button?.title = title
+        let visible = battery == nil ? selected.subtracting([.battery]) : selected
+        let title = MenuBarMetric.title(for: visible, snapshot: snapshot, battery: battery)
+        statusItem.length = MenuBarMetric.width(for: visible)
+        statusItem.button?.attributedTitle = MenuBarMetric.attributedTitle(for: visible, snapshot: snapshot, battery: battery)
         statusItem.button?.setAccessibilityLabel(title.isEmpty ? "系统状态" : "系统状态，\(title)")
+        statusItem.button?.toolTip = visible.contains(.battery) ? "系统状态，" + (battery?.summary ?? title) : "系统状态"
+    }
+
+    func updateBattery(_ battery: BatteryMetric?) {
+        self.battery = battery
+        hasBatterySample = true
+        resourceView?.updateBatteryAvailability(battery != nil)
+        statusMenuView.updateBattery(battery)
+        updateStatusItem()
     }
 
     func menuWillOpen(_ menu: NSMenu) {
@@ -112,7 +124,6 @@ final class NativeHostDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
     func menuDidClose(_ menu: NSMenu) {
         statusMenuIsOpen = false
         statusMenuView.endTracking()
-        statusMenuView.disk.cancelPendingAutomaticScan()
         updateStatusItem()
         updateDetailedSampling()
     }
@@ -121,19 +132,6 @@ final class NativeHostDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
     private func updateDetailedSampling() {
         if statusMenuIsOpen || resourceWindowNeedsSampling { detailMonitor.start() }
         else { detailMonitor.stop() }
-    }
-
-    private func chooseMenuDiskFolder() {
-        DispatchQueue.main.async { [weak self] in
-            guard let self else { return }
-            let panel = NSOpenPanel()
-            panel.canChooseFiles = false; panel.canChooseDirectories = true
-            panel.directoryURL = self.statusMenuView.disk.root; panel.prompt = "扫描"
-            NSApp.activate(ignoringOtherApps: true)
-            panel.begin { [weak self] response in
-                if response == .OK, let url = panel.url { self?.statusMenuView.disk.scanUserSelected(url) }
-            }
-        }
     }
 
     private func applyMenuBarPreference() {
@@ -172,6 +170,7 @@ final class NativeHostDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
             view.onLoginItemSettings = { [weak self] in self?.loginItem.openSettings() }
             view.onActivityMonitor = { [weak self] in self?.openActivityMonitor() }
             view.updatePreferences(preferences)
+            view.updateBatteryAvailability(hasBatterySample ? battery != nil : nil)
             if let snapshot { view.metricsView.update(snapshot) }
             resourceView = view
             let dashboard = ResourceDashboardView(configuration: view)
@@ -213,7 +212,6 @@ final class NativeHostDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
     func windowWillClose(_ notification: Notification) {
         resourceWindowNeedsSampling = false
         updateDetailedSampling()
-        dashboard?.disk.cancelPendingAutomaticScan()
         if preferences.menuBarEnabled { NSApp.setActivationPolicy(.accessory) }
     }
 
