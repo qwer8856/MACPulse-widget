@@ -52,15 +52,20 @@ final class ProcessTableView: NSView, NSTableViewDataSource, NSTableViewDelegate
     private(set) var rows: [ProcessMetric] = []
     private var sample: DetailedSnapshot?
     private let mode: ProcessSort
+    private let allowsTermination: Bool
+    private let compact: Bool
 
-    init(mode: ProcessSort) {
+    init(mode: ProcessSort, compact: Bool = false, allowsTermination: Bool = true) {
         self.mode = mode
+        self.allowsTermination = allowsTermination
+        self.compact = compact
         super.init(frame: .zero)
         search.placeholderString = "搜索进程"
         search.delegate = self
         quitButton = toolButton("xmark.circle", "退出所选进程", target: self, action: #selector(requestQuit))
         forceButton = toolButton("exclamationmark.octagon", "强制退出所选进程", target: self, action: #selector(requestForceQuit))
         quitButton.isEnabled = false; forceButton.isEnabled = false
+        quitButton.isHidden = !allowsTermination; forceButton.isHidden = !allowsTermination
         status.font = .systemFont(ofSize: 11)
         status.textColor = .secondaryLabelColor
         status.lineBreakMode = .byTruncatingTail
@@ -70,20 +75,27 @@ final class ProcessTableView: NSView, NSTableViewDataSource, NSTableViewDelegate
         case .memory: columns += [("memory", "内存", 120), ("share", "内存占比", 100), ("cpu", "CPU %", 110)]
         case .energy: columns += [("energy", "CPU 能耗 W", 120), ("cpu", "CPU %", 100), ("wakeups", "唤醒/秒", 110)]
         }
+        if compact {
+            switch mode {
+            case .cpu: columns = [("name", "进程", 260), ("cpu", "CPU %", 110), ("memory", "内存", 110)]
+            case .memory: columns = [("name", "进程", 240), ("memory", "内存", 120), ("share", "内存占比", 120)]
+            case .energy: columns = [("name", "进程", 240), ("energy", "CPU 能耗 W", 130), ("cpu", "CPU %", 110)]
+            }
+        }
         for (id, title, width) in columns {
             let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(id))
-            column.title = title; column.width = width; column.minWidth = id == "name" ? 180 : 60
+            column.title = title; column.width = width; column.minWidth = id == "name" ? (compact ? 140 : 180) : 60
             column.sortDescriptorPrototype = NSSortDescriptor(key: id, ascending: false)
             column.headerToolTip = id == "cpu" ? "单个核心满载为 100%，多核进程可超过 100%" : (id == "share" ? "占本机物理内存的比例" : nil)
             table.addTableColumn(column)
         }
         table.delegate = self; table.dataSource = self
         table.rowHeight = 27; table.usesAlternatingRowBackgroundColors = true
-        table.columnAutoresizingStyle = .lastColumnOnlyAutoresizingStyle
+        table.columnAutoresizingStyle = compact ? .noColumnAutoresizing : .lastColumnOnlyAutoresizingStyle
         table.sortDescriptors = [NSSortDescriptor(key: mode.rawValue, ascending: false)]
         table.allowsMultipleSelection = false
         let scroll = NSScrollView()
-        scroll.documentView = table; scroll.hasVerticalScroller = true; scroll.hasHorizontalScroller = true
+        scroll.documentView = table; scroll.hasVerticalScroller = true; scroll.hasHorizontalScroller = !compact
         scroll.borderType = .bezelBorder
         for view in [search, quitButton!, forceButton!, scroll, status] { view.translatesAutoresizingMaskIntoConstraints = false; addSubview(view) }
         NSLayoutConstraint.activate([
@@ -96,6 +108,19 @@ final class ProcessTableView: NSView, NSTableViewDataSource, NSTableViewDelegate
     }
     required init?(coder: NSCoder) { fatalError() }
     func update(_ sample: DetailedSnapshot) { self.sample = sample; reload() }
+    func clear() { sample = nil; reload() }
+    override func layout() {
+        super.layout()
+        guard compact, let scroll = table.enclosingScrollView else { return }
+        let available = scroll.contentSize.width - table.intercellSpacing.width * 3 - 2
+        let widths: [CGFloat]
+        switch mode {
+        case .cpu: widths = [max(140, available - 200), 80, 120]
+        case .memory: widths = [max(140, available - 215), 120, 95]
+        case .energy: widths = [max(140, available - 210), 120, 90]
+        }
+        for (column, width) in zip(table.tableColumns, widths) where abs(column.width - width) > 0.5 { column.width = width }
+    }
 
     static func sorted(_ values: [ProcessMetric], key: String, ascending: Bool) -> [ProcessMetric] {
         func value(_ row: ProcessMetric) -> Double? {
@@ -129,8 +154,8 @@ final class ProcessTableView: NSView, NSTableViewDataSource, NSTableViewDelegate
         updateSelection()
     }
     private func updateSelection() {
-        let reason = selected.flatMap(ProcessActions.protectionReason)
-        quitButton.isEnabled = selected != nil && reason == nil
+        let reason = allowsTermination ? selected.flatMap(ProcessActions.protectionReason) : nil
+        quitButton.isEnabled = allowsTermination && selected != nil && reason == nil
         forceButton.isEnabled = quitButton.isEnabled
         let total = sample?.totalProcesses ?? 0, readable = sample?.processes.count ?? 0
         status.stringValue = "显示 \(rows.count) 项 · 可读取 \(readable) / \(total) 个进程" + (reason.map { " · \($0)不可退出" } ?? "")
@@ -162,7 +187,7 @@ final class ProcessTableView: NSView, NSTableViewDataSource, NSTableViewDelegate
     @objc private func requestQuit() { confirmTermination(force: false) }
     @objc private func requestForceQuit() { confirmTermination(force: true) }
     private func confirmTermination(force: Bool) {
-        guard let process = selected, ProcessActions.protectionReason(process) == nil, let window else { return }
+        guard allowsTermination, let process = selected, ProcessActions.protectionReason(process) == nil, let window else { return }
         let alert = NSAlert()
         alert.messageText = "\(force ? "强制退出" : "退出")“\(process.name)”？"
         alert.informativeText = "PID \(process.identity.pid)。" + (force ? "强制退出可能丢失未保存内容。" : "退出前请保存正在编辑的内容。")
@@ -190,8 +215,11 @@ final class DiskUsageView: NSView, NSTableViewDataSource, NSTableViewDelegate {
     private var cancellation: DiskScanCancellation?
     private var generation = UUID()
     private let queue = DispatchQueue(label: "local.macpulse.disk-scan", qos: .utility)
+    var onChooseFolder: (() -> Void)?
+    private let compact: Bool
 
-    init() {
+    init(compact: Bool = false) {
+        self.compact = compact
         super.init(frame: .zero)
         let choose = toolButton("folder", "选择扫描目录", target: self, action: #selector(chooseFolder))
         let up = toolButton("arrow.up", "扫描上级目录", target: self, action: #selector(goUp))
@@ -203,18 +231,20 @@ final class DiskUsageView: NSView, NSTableViewDataSource, NSTableViewDelegate {
         tools.orientation = .horizontal; tools.spacing = 6
         pathLabel.lineBreakMode = .byTruncatingMiddle; pathLabel.font = .systemFont(ofSize: 12)
         status.font = .systemFont(ofSize: 11); status.textColor = .secondaryLabelColor
-        for (id, title, width) in [("name", "项目", 390.0), ("bytes", "已分配容量", 150.0), ("share", "占已统计容量", 130.0)] {
+        for (id, title, width) in [("name", "项目", compact ? 230.0 : 390.0), ("bytes", "已分配容量", compact ? 120.0 : 150.0), ("share", "占已统计容量", 130.0)] {
             let column = NSTableColumn(identifier: NSUserInterfaceItemIdentifier(id))
-            column.title = title; column.width = width; column.minWidth = id == "name" ? 200 : 120
+            column.title = title; column.width = width; column.minWidth = id == "name" ? (compact ? 140 : 200) : 120
             column.sortDescriptorPrototype = NSSortDescriptor(key: id, ascending: false)
             table.addTableColumn(column)
         }
         table.dataSource = self; table.delegate = self; table.rowHeight = 29
         table.usesAlternatingRowBackgroundColors = true
+        if compact { table.columnAutoresizingStyle = .noColumnAutoresizing }
+        status.lineBreakMode = .byTruncatingTail
         table.target = self; table.doubleAction = #selector(drillDown)
         table.sortDescriptors = [NSSortDescriptor(key: "bytes", ascending: false)]
         let scroll = NSScrollView()
-        scroll.documentView = table; scroll.hasVerticalScroller = true; scroll.hasHorizontalScroller = true; scroll.borderType = .bezelBorder
+        scroll.documentView = table; scroll.hasVerticalScroller = true; scroll.hasHorizontalScroller = !compact; scroll.borderType = .bezelBorder
         for view in [tools, pathLabel, scroll, status] { view.translatesAutoresizingMaskIntoConstraints = false; addSubview(view) }
         NSLayoutConstraint.activate([
             tools.topAnchor.constraint(equalTo: topAnchor), tools.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -225,6 +255,12 @@ final class DiskUsageView: NSView, NSTableViewDataSource, NSTableViewDelegate {
         pathLabel.stringValue = root.path
     }
     required init?(coder: NSCoder) { fatalError() }
+    override func layout() {
+        super.layout()
+        guard compact, let scroll = table.enclosingScrollView else { return }
+        let available = scroll.contentSize.width - table.intercellSpacing.width * 3 - 2
+        for (column, width) in zip(table.tableColumns, [max(140, available - 240), 120, 120]) where abs(column.width - width) > 0.5 { column.width = width }
+    }
     deinit { cancellation?.cancel() }
     func scan(_ directory: URL) {
         cancellation?.cancel()
@@ -234,9 +270,9 @@ final class DiskUsageView: NSView, NSTableViewDataSource, NSTableViewDelegate {
         status.stringValue = "扫描中…"; scanButton.isEnabled = false; cancelButton.isEnabled = true
         queue.async { [weak self] in
             let result = DiskUsageScanner.scan(root: directory, cancellation: cancellation) { progress in
-                DispatchQueue.main.async { [weak self] in if self?.generation == token { self?.update(progress) } }
+                RunLoop.main.perform(inModes: [.default, .eventTracking, .modalPanel]) { [weak self] in if self?.generation == token { self?.update(progress) } }
             }
-            DispatchQueue.main.async { [weak self] in if self?.generation == token { self?.update(result) } }
+            RunLoop.main.perform(inModes: [.default, .eventTracking, .modalPanel]) { [weak self] in if self?.generation == token { self?.update(result) } }
         }
     }
     func update(_ result: DiskScanResult) {
@@ -262,6 +298,7 @@ final class DiskUsageView: NSView, NSTableViewDataSource, NSTableViewDelegate {
     @objc private func cancelScan() { cancel() }
     @objc private func goUp() { scan(root.deletingLastPathComponent()) }
     @objc private func chooseFolder() {
+        if let onChooseFolder { onChooseFolder(); return }
         guard let window else { return }
         let panel = NSOpenPanel(); panel.canChooseFiles = false; panel.canChooseDirectories = true
         panel.directoryURL = root; panel.prompt = "扫描"

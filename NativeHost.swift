@@ -6,7 +6,7 @@ final class NativeHostDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
     private(set) var window: NSWindow?
     private(set) var resourceView: ResourceMonitorContentView?
     private(set) var dashboard: ResourceDashboardView?
-    let statusMenuView = StatusMenuView()
+    let statusMenuView = StatusMenuController()
     private let preferences: MonitorPreferences
     private let monitor = LiveMetricsMonitor()
     private let detailMonitor = DetailedMonitor()
@@ -49,7 +49,7 @@ final class NativeHostDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         monitor.onSample = { [weak self] snapshot in
             guard let self else { return }
             self.snapshot = snapshot
-            self.statusMenuView.metrics.update(snapshot)
+            self.statusMenuView.update(snapshot)
             self.resourceView?.metricsView.update(snapshot)
             self.dashboard?.update(snapshot)
             self.updateStatusItem()
@@ -67,11 +67,8 @@ final class NativeHostDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         statusItem.button?.imagePosition = .imageLeading
         statusItem.button?.font = MenuBarMetric.font
         statusItem.button?.toolTip = "系统状态"
-        let menu = NSMenu()
+        let menu = statusMenuView.menu
         menu.delegate = self
-        let content = NSMenuItem()
-        content.view = statusMenuView
-        menu.addItem(content)
         statusItem.menu = menu
         statusMenuView.onSelection = { [weak self] selected in
             guard let self else { return }
@@ -79,13 +76,17 @@ final class NativeHostDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
             self.resourceView?.updatePreferences(self.preferences)
             self.updateStatusItem()
         }
-        statusMenuView.onOpenMonitor = { [weak self] in self?.showResourceMonitor() }
+        statusMenuView.onOpenMonitor = { [weak self] page in
+            self?.showResourceMonitor()
+            self?.dashboard?.tabs.selectTabViewItem(at: page)
+        }
+        statusMenuView.onChooseFolder = { [weak self] in self?.chooseMenuDiskFolder() }
         statusMenuView.onDisable = { [weak self] in self?.disableMenuBar() }
         statusMenuView.onQuit = { [weak self] in self?.quit() }
         updateStatusItem()
     }
 
-    func applicationWillTerminate(_ notification: Notification) { monitor.stop(); detailMonitor.stop(); dashboard?.disk.cancel() }
+    func applicationWillTerminate(_ notification: Notification) { monitor.stop(); detailMonitor.stop(); dashboard?.disk.cancel(); statusMenuView.disk.cancel() }
 
     func applicationDidBecomeActive(_ notification: Notification) {
         resourceView?.updateLoginItem(loginItem.status)
@@ -110,6 +111,7 @@ final class NativeHostDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
     }
     func menuDidClose(_ menu: NSMenu) {
         statusMenuIsOpen = false
+        statusMenuView.disk.cancel()
         updateStatusItem()
         updateDetailedSampling()
     }
@@ -117,6 +119,19 @@ final class NativeHostDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
     private func updateDetailedSampling() {
         if statusMenuIsOpen || resourceWindowNeedsSampling { detailMonitor.start() }
         else { detailMonitor.stop() }
+    }
+
+    private func chooseMenuDiskFolder() {
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            let panel = NSOpenPanel()
+            panel.canChooseFiles = false; panel.canChooseDirectories = true
+            panel.directoryURL = self.statusMenuView.disk.root; panel.prompt = "扫描"
+            NSApp.activate(ignoringOtherApps: true)
+            panel.begin { [weak self] response in
+                if response == .OK, let url = panel.url { self?.statusMenuView.disk.scan(url) }
+            }
+        }
     }
 
     private func applyMenuBarPreference() {
