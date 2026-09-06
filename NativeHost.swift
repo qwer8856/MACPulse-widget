@@ -180,7 +180,7 @@ final class NativeHostDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
             window.level = .normal
             window.isReleasedWhenClosed = false
             window.contentView = dashboard
-            window.contentMinSize = NSSize(width: 820, height: 600)
+            window.contentMinSize = NSSize(width: 780, height: 480)
             window.delegate = self
             window.center()
             self.window = window

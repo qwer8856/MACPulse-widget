@@ -67,9 +67,9 @@ final class MenuMetricRow: NSView {
         icon.contentTintColor = color
         let label = NSTextField(labelWithString: title)
         label.font = .systemFont(ofSize: 12, weight: .medium)
-        value.font = .monospacedDigitSystemFont(ofSize: 16, weight: .semibold)
+        value.font = .monospacedDigitSystemFont(ofSize: 18, weight: .semibold)
         value.alignment = .right
-        detail.font = .systemFont(ofSize: 10)
+        detail.font = .systemFont(ofSize: 11)
         detail.textColor = .secondaryLabelColor
         detail.lineBreakMode = .byTruncatingTail
         for view in [icon, label, value, detail] {
@@ -77,7 +77,7 @@ final class MenuMetricRow: NSView {
             addSubview(view)
         }
         NSLayoutConstraint.activate([
-            heightAnchor.constraint(equalToConstant: 43),
+            heightAnchor.constraint(equalToConstant: 52),
             icon.leadingAnchor.constraint(equalTo: leadingAnchor),
             icon.topAnchor.constraint(equalTo: topAnchor, constant: 3),
             icon.widthAnchor.constraint(equalToConstant: 15),
@@ -106,6 +106,7 @@ final class MenuBarContentView: NSView {
     private let memory = MenuMetricRow(title: "内存", symbol: "memorychip", color: .systemGreen)
     private let disk = MenuMetricRow(title: "磁盘", symbol: "internaldrive", color: .systemOrange)
     private let power = MenuMetricRow(title: "功率", symbol: "bolt.fill", color: .systemPink)
+    private let battery = MenuMetricRow(title: "电池", symbol: "battery.100percent", color: .systemTeal)
     private let pressure = NSTextField(labelWithString: "压力未知")
     private let timestamp = NSTextField(labelWithString: "--:--:--")
     private let timeFormatter: DateFormatter = {
@@ -115,13 +116,13 @@ final class MenuBarContentView: NSView {
     }()
 
     init() {
-        super.init(frame: NSRect(x: 0, y: 0, width: 300, height: 244))
+        super.init(frame: NSRect(x: 0, y: 0, width: 360, height: 342))
         let title = NSTextField(labelWithString: "系统状态")
         title.font = .systemFont(ofSize: 13, weight: .semibold)
         timestamp.font = .monospacedDigitSystemFont(ofSize: 10, weight: .regular)
         timestamp.textColor = .secondaryLabelColor
         pressure.font = .systemFont(ofSize: 11, weight: .medium)
-        for view in [title, timestamp, cpu, memory, disk, power, pressure] {
+        for view in [title, timestamp, cpu, memory, disk, power, battery, pressure] {
             view.translatesAutoresizingMaskIntoConstraints = false
             addSubview(view)
         }
@@ -131,15 +132,16 @@ final class MenuBarContentView: NSView {
             timestamp.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
             timestamp.centerYAnchor.constraint(equalTo: title.centerYAnchor),
             timestamp.leadingAnchor.constraint(greaterThanOrEqualTo: title.trailingAnchor, constant: 12),
-            cpu.topAnchor.constraint(equalTo: topAnchor, constant: 38),
+            cpu.topAnchor.constraint(equalTo: topAnchor, constant: 46),
             memory.topAnchor.constraint(equalTo: cpu.bottomAnchor),
             disk.topAnchor.constraint(equalTo: memory.bottomAnchor),
             power.topAnchor.constraint(equalTo: disk.bottomAnchor),
-            pressure.topAnchor.constraint(equalTo: power.bottomAnchor, constant: 5),
+            battery.topAnchor.constraint(equalTo: power.bottomAnchor),
+            pressure.topAnchor.constraint(equalTo: battery.bottomAnchor, constant: 5),
             pressure.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
             pressure.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14)
         ])
-        for row in [cpu, memory, disk, power] {
+        for row in [cpu, memory, disk, power, battery] {
             NSLayoutConstraint.activate([
                 row.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
                 row.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14)
@@ -148,6 +150,18 @@ final class MenuBarContentView: NSView {
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    func updateDetails(_ details: DetailedSnapshot) {
+        guard let metric = details.battery else {
+            battery.update(value: "无电池", detail: "无内置电池 · 外接电源")
+            return
+        }
+        var status = metric.charging ? "正在充电" : (metric.external ? "外接电源" : "电池供电")
+        if let minutes = metric.minutesRemaining {
+            status += " · \(metric.charging ? "充满约需" : "预计剩余") \(minutes / 60) 小时 \(minutes % 60) 分钟"
+        }
+        battery.update(value: MenuBarText.percent(metric.percent), detail: status)
+    }
 
     func update(_ snapshot: MetricsSnapshot) {
         cpu.update(value: MenuBarText.percent(snapshot.cpu), detail: "\(ProcessInfo.processInfo.processorCount) 核")

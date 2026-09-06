@@ -2,13 +2,13 @@
 
 原生 macOS 资源监视、可选菜单栏监控与桌面小组件。查看各核心 CPU、进程内存、目录容量、电池与进程 CPU 能耗，并由用户选择退出进程。资源监视使用普通窗口，不会置顶。
 
-当前版本：**3.2.2**。安装后的应用和小组件名称均为 **“系统状态”**。
+当前版本：**3.3.0**。安装后的应用和小组件名称均为 **“系统状态”**。
 
 ## 下载安装
 
-**[下载安装包：MacPulse Widget 3.2.2（M 系列 Mac）](https://github.com/qwer8856/MACPulse-widget/releases/download/v3.2.2/MACPulse-Widget-v3.2.2-macOS-arm64.zip)**
+**[下载安装包：MacPulse Widget 3.3.0（M 系列 Mac）](https://github.com/qwer8856/MACPulse-widget/releases/download/v3.3.0/MACPulse-Widget-v3.3.0-macOS-arm64.zip)**
 
-[版本发布页与校验文件](https://github.com/qwer8856/MACPulse-widget/releases/tag/v3.2.2)
+[版本发布页与校验文件](https://github.com/qwer8856/MACPulse-widget/releases/tag/v3.3.0)
 
 需要 Apple Silicon Mac（M 系列）和 macOS 14 或更新版本。
 
@@ -26,11 +26,13 @@
 
 | 页面 | 内容 |
 | --- | --- |
-| 总览与设置 | CPU、内存、磁盘、供电功率概览，各核心占用，菜单栏与登录启动开关 |
-| CPU | 每个逻辑核心的占用比例，默认按 CPU 占用从高到低排列的进程 |
+| 总览与设置 | 左侧集中显示 CPU、内存、磁盘、功率与电池状态，右侧为菜单栏、自启设置和系统工具 |
+| CPU | 总体利用率，默认按 CPU 占用从高到低排列的进程 |
 | 内存 | 总内存比例、应用/固定/压缩内存、交换空间、内存压力，按内存用量降序的进程及占比 |
 | 磁盘 | 手动选择目录扫描，按已分配容量降序查看子项目及占比，可进入子目录、取消扫描或在 Finder 中定位 |
 | 电池与能耗 | 电池电量、供电与充电状态、系统可提供的预计剩余时间和健康状态，按 CPU 能耗估算降序排列进程 |
+
+资源窗口不显示各核心 CPU 图表；核心数量与各核心占用保留在菜单栏的 CPU 子菜单中。窗口采用紧凑布局，支持调整大小。
 
 进程列表支持按名称或 PID 搜索，点击列标题可切换排序。系统可能限制部分进程的读取权限，底部显示可读取进程数量。
 
@@ -97,7 +99,7 @@
 
 ### CPU、内存、磁盘与能耗
 
-<img src="docs/images/cpu.png" width="700" alt="各核心 CPU 占用和进程排名">
+<img src="docs/images/cpu.png" width="700" alt="CPU 总体利用率和进程排名">
 <img src="docs/images/memory.png" width="700" alt="内存组成、进程内存和占比">
 <img src="docs/images/disk.png" width="700" alt="测试目录的已分配容量与比例">
 <img src="docs/images/energy.png" width="700" alt="电池信息和进程 CPU 能耗排名">

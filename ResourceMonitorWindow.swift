@@ -79,9 +79,15 @@ final class ResourceMonitorContentView: NSView {
     var onActivityMonitor: (() -> Void)?
 
     init() {
-        super.init(frame: NSRect(x: 0, y: 0, width: 340, height: 454))
+        super.init(frame: NSRect(x: 0, y: 0, width: 760, height: 406))
         let separator = NSBox()
         separator.boxType = .separator
+        let settingsTitle = NSTextField(labelWithString: "显示与启动")
+        settingsTitle.font = .systemFont(ofSize: 13, weight: .semibold)
+        let loginSeparator = NSBox()
+        loginSeparator.boxType = .separator
+        let toolsTitle = NSTextField(labelWithString: "系统工具")
+        toolsTitle.font = .systemFont(ofSize: 13, weight: .semibold)
         let label = NSTextField(labelWithString: "显示内容")
         label.font = .systemFont(ofSize: 12)
         let choices = NSStackView(views: metricToggles)
@@ -105,34 +111,44 @@ final class ResourceMonitorContentView: NSView {
         activity.bezelStyle = .rounded
         activity.image = NSImage(systemSymbolName: "waveform.path.ecg", accessibilityDescription: nil)
         activity.imagePosition = .imageLeading
-        for view in [metricsView, separator, menuBarToggle, label, choices, loginItemToggle, loginSettings, activity] {
+        for view in [metricsView, separator, settingsTitle, menuBarToggle, label, choices, loginSeparator, loginItemToggle, loginSettings, toolsTitle, activity] {
             view.translatesAutoresizingMaskIntoConstraints = false
             addSubview(view)
         }
         NSLayoutConstraint.activate([
-            metricsView.topAnchor.constraint(equalTo: topAnchor, constant: 4),
-            metricsView.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 6),
-            metricsView.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -6),
-            metricsView.heightAnchor.constraint(equalToConstant: 244),
-            separator.topAnchor.constraint(equalTo: metricsView.bottomAnchor, constant: 4),
-            separator.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 20),
-            separator.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -20),
-            menuBarToggle.topAnchor.constraint(equalTo: separator.bottomAnchor, constant: 14),
-            menuBarToggle.leadingAnchor.constraint(equalTo: separator.leadingAnchor),
-            label.leadingAnchor.constraint(equalTo: separator.leadingAnchor),
-            label.topAnchor.constraint(equalTo: menuBarToggle.bottomAnchor, constant: 14),
+            metricsView.topAnchor.constraint(equalTo: topAnchor),
+            metricsView.leadingAnchor.constraint(equalTo: leadingAnchor),
+            metricsView.widthAnchor.constraint(equalTo: widthAnchor, multiplier: 0.5, constant: -20),
+            metricsView.heightAnchor.constraint(equalToConstant: 342),
+            separator.topAnchor.constraint(equalTo: topAnchor, constant: 12),
+            separator.centerXAnchor.constraint(equalTo: centerXAnchor),
+            separator.widthAnchor.constraint(equalToConstant: 1),
+            separator.bottomAnchor.constraint(equalTo: metricsView.bottomAnchor, constant: -12),
+            settingsTitle.leadingAnchor.constraint(equalTo: separator.trailingAnchor, constant: 24),
+            settingsTitle.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
+            settingsTitle.topAnchor.constraint(equalTo: topAnchor, constant: 12),
+            menuBarToggle.topAnchor.constraint(equalTo: settingsTitle.bottomAnchor, constant: 24),
+            menuBarToggle.leadingAnchor.constraint(equalTo: settingsTitle.leadingAnchor),
+            label.leadingAnchor.constraint(equalTo: settingsTitle.leadingAnchor),
+            label.topAnchor.constraint(equalTo: menuBarToggle.bottomAnchor, constant: 16),
             choices.topAnchor.constraint(equalTo: label.bottomAnchor, constant: 8),
-            choices.leadingAnchor.constraint(equalTo: separator.leadingAnchor),
-            choices.trailingAnchor.constraint(equalTo: separator.trailingAnchor),
+            choices.leadingAnchor.constraint(equalTo: settingsTitle.leadingAnchor),
+            choices.trailingAnchor.constraint(equalTo: settingsTitle.trailingAnchor),
             choices.heightAnchor.constraint(equalToConstant: 20),
-            loginItemToggle.leadingAnchor.constraint(equalTo: separator.leadingAnchor),
-            loginItemToggle.topAnchor.constraint(equalTo: choices.bottomAnchor, constant: 18),
+            loginSeparator.topAnchor.constraint(equalTo: choices.bottomAnchor, constant: 24),
+            loginSeparator.leadingAnchor.constraint(equalTo: settingsTitle.leadingAnchor),
+            loginSeparator.trailingAnchor.constraint(equalTo: settingsTitle.trailingAnchor),
+            loginItemToggle.leadingAnchor.constraint(equalTo: settingsTitle.leadingAnchor),
+            loginItemToggle.topAnchor.constraint(equalTo: loginSeparator.bottomAnchor, constant: 20),
             loginItemToggle.trailingAnchor.constraint(lessThanOrEqualTo: loginSettings.leadingAnchor, constant: -8),
-            loginSettings.trailingAnchor.constraint(equalTo: separator.trailingAnchor),
+            loginSettings.trailingAnchor.constraint(equalTo: settingsTitle.trailingAnchor),
             loginSettings.centerYAnchor.constraint(equalTo: loginItemToggle.centerYAnchor),
             loginSettings.widthAnchor.constraint(equalToConstant: 44),
-            activity.leadingAnchor.constraint(equalTo: separator.leadingAnchor),
-            activity.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -16)
+            toolsTitle.leadingAnchor.constraint(equalTo: settingsTitle.leadingAnchor),
+            toolsTitle.topAnchor.constraint(equalTo: loginItemToggle.bottomAnchor, constant: 36),
+            activity.leadingAnchor.constraint(equalTo: settingsTitle.leadingAnchor),
+            activity.topAnchor.constraint(equalTo: toolsTitle.bottomAnchor, constant: 12),
+            activity.bottomAnchor.constraint(lessThanOrEqualTo: bottomAnchor, constant: -14)
         ])
     }
 

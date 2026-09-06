@@ -347,16 +347,16 @@ final class ResourceDashboardView: NSView, NSTabViewDelegate {
     let memoryTable = ProcessTableView(mode: .memory)
     let energyTable = ProcessTableView(mode: .energy)
     let disk = DiskUsageView()
-    let cores = CoreUsageView()
-    let overviewCores = CoreUsageView()
+    private let configuration: ResourceMonitorContentView
+    private let cpuSummary = NSTextField(labelWithString: "等待 CPU 采样")
     private let memorySummary = NSTextField(wrappingLabelWithString: "等待内存采样")
     private let energySummary = NSTextField(wrappingLabelWithString: "等待电池信息")
-    private let overviewSummary = NSTextField(wrappingLabelWithString: "等待采样")
     private var sample: MetricsSnapshot?
     private var details: DetailedSnapshot?
 
     init(configuration: ResourceMonitorContentView) {
-        super.init(frame: NSRect(x: 0, y: 0, width: 860, height: 650))
+        self.configuration = configuration
+        super.init(frame: NSRect(x: 0, y: 0, width: 820, height: 500))
         navigation.segmentStyle = .smallSquare
         navigation.target = self; navigation.action = #selector(selectPage)
         navigation.selectedSegment = 0
@@ -364,23 +364,21 @@ final class ResourceDashboardView: NSView, NSTabViewDelegate {
         for view in [navigation, tabs] { view.translatesAutoresizingMaskIntoConstraints = false; addSubview(view) }
         NSLayoutConstraint.activate([navigation.centerXAnchor.constraint(equalTo: centerXAnchor), navigation.topAnchor.constraint(equalTo: topAnchor, constant: 12), navigation.heightAnchor.constraint(equalToConstant: 28), navigation.widthAnchor.constraint(equalToConstant: 580), tabs.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14), tabs.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14), tabs.topAnchor.constraint(equalTo: navigation.bottomAnchor, constant: 12), tabs.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -14)])
         let overview = NSView()
-        let coreTitle = NSTextField(labelWithString: "各核心 CPU 占用")
-        coreTitle.font = .systemFont(ofSize: 13, weight: .semibold)
-        let coreScroll = coreContainer(overviewCores)
-        for view in [configuration, coreTitle, coreScroll, overviewSummary] { view.translatesAutoresizingMaskIntoConstraints = false; overview.addSubview(view) }
+        configuration.translatesAutoresizingMaskIntoConstraints = false
+        overview.addSubview(configuration)
         NSLayoutConstraint.activate([
-            configuration.leadingAnchor.constraint(equalTo: overview.leadingAnchor, constant: 8), configuration.topAnchor.constraint(equalTo: overview.topAnchor, constant: 8), configuration.widthAnchor.constraint(equalToConstant: 340), configuration.heightAnchor.constraint(equalToConstant: 454),
-            coreTitle.leadingAnchor.constraint(equalTo: configuration.trailingAnchor, constant: 20), coreTitle.topAnchor.constraint(equalTo: overview.topAnchor, constant: 24),
-            coreScroll.leadingAnchor.constraint(equalTo: coreTitle.leadingAnchor), coreScroll.trailingAnchor.constraint(equalTo: overview.trailingAnchor, constant: -16), coreScroll.topAnchor.constraint(equalTo: coreTitle.bottomAnchor, constant: 12), coreScroll.heightAnchor.constraint(equalToConstant: 200),
-            overviewSummary.leadingAnchor.constraint(equalTo: coreTitle.leadingAnchor), overviewSummary.trailingAnchor.constraint(equalTo: coreScroll.trailingAnchor), overviewSummary.topAnchor.constraint(equalTo: coreScroll.bottomAnchor, constant: 20)
+            configuration.leadingAnchor.constraint(equalTo: overview.leadingAnchor, constant: 14),
+            configuration.trailingAnchor.constraint(equalTo: overview.trailingAnchor, constant: -14),
+            configuration.topAnchor.constraint(equalTo: overview.topAnchor, constant: 14),
+            configuration.bottomAnchor.constraint(equalTo: overview.bottomAnchor, constant: -14)
         ])
         addTab("总览与设置", view: overview)
-        addTab("CPU", view: page(header: coreContainer(cores), height: 150, body: cpuTable))
-        addTab("内存", view: page(header: memorySummary, height: 60, body: memoryTable))
+        addTab("CPU", view: page(header: cpuSummary, height: 24, body: cpuTable))
+        addTab("内存", view: page(header: memorySummary, height: 48, body: memoryTable))
         let diskPage = page(header: NSTextField(labelWithString: "目录容量"), height: 20, body: disk)
         addTab("磁盘", view: diskPage)
-        addTab("电池与能耗", view: page(header: energySummary, height: 80, body: energyTable))
-        for label in [memorySummary, energySummary, overviewSummary] { label.font = .systemFont(ofSize: 12); label.textColor = .secondaryLabelColor }
+        addTab("电池与能耗", view: page(header: energySummary, height: 64, body: energyTable))
+        for label in [cpuSummary, memorySummary, energySummary] { label.font = .systemFont(ofSize: 12); label.textColor = .secondaryLabelColor }
     }
     required init?(coder: NSCoder) { fatalError() }
     @objc private func selectPage() { tabs.selectTabViewItem(at: navigation.selectedSegment) }
@@ -389,13 +387,6 @@ final class ResourceDashboardView: NSView, NSTabViewDelegate {
     }
     private func addTab(_ label: String, view: NSView) {
         let tab = NSTabViewItem(identifier: label); tab.label = label; tab.view = view; tabs.addTabViewItem(tab)
-    }
-    private func coreContainer(_ view: CoreUsageView) -> NSView {
-        let scroll = NSScrollView()
-        scroll.hasVerticalScroller = true; scroll.drawsBackground = false
-        scroll.documentView = view; view.translatesAutoresizingMaskIntoConstraints = false
-        NSLayoutConstraint.activate([view.leadingAnchor.constraint(equalTo: scroll.contentView.leadingAnchor), view.trailingAnchor.constraint(equalTo: scroll.contentView.trailingAnchor), view.topAnchor.constraint(equalTo: scroll.contentView.topAnchor)])
-        return scroll
     }
     private func page(header: NSView, height: CGFloat, body: NSView) -> NSView {
         let page = NSView()
@@ -406,11 +397,12 @@ final class ResourceDashboardView: NSView, NSTabViewDelegate {
     func update(_ sample: MetricsSnapshot) { self.sample = sample; updateSummaries() }
     func updateDetails(_ details: DetailedSnapshot) {
         self.details = details
-        cores.update(details.cores); overviewCores.update(details.cores)
+        configuration.metricsView.updateDetails(details)
         cpuTable.update(details); memoryTable.update(details); energyTable.update(details)
         updateSummaries()
     }
     private func updateSummaries() {
+        cpuSummary.stringValue = "CPU 总利用率 \(MenuBarText.percent(sample?.cpu))"
         if let memory = sample?.memory {
             memorySummary.stringValue = "内存 \(MenuBarText.percent(memory.percent)) · 已用 \(memorySize(memory.occupied)) / \(memorySize(memory.total)) · \(memory.pressureLabel)\n应用 \(memorySize(memory.application ?? 0)) · 固定 \(memorySize(memory.wired ?? 0)) · 压缩 \(memorySize(memory.compressed)) · 交换 \(memorySize(memory.swap ?? 0))"
         }
@@ -418,6 +410,5 @@ final class ResourceDashboardView: NSView, NSTabViewDelegate {
         let watts = sample.flatMap(MenuBarText.freshPower).map { String(format: "供电侧 %.1f W", $0.watts) } ?? "供电功率暂无数据"
         let energy = details?.energyAvailable == true ? "进程 CPU 能耗估算，不含 GPU、磁盘及显示器。" : "当前系统未提供进程能耗数据，可在 CPU 栏查看活跃进程。"
         energySummary.stringValue = "\(battery)\n\(watts)\n\(energy)"
-        overviewSummary.stringValue = "\(battery)\n\n\(watts)\n\n\(memorySummary.stringValue)"
     }
 }
