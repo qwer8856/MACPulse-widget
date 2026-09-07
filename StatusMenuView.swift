@@ -12,6 +12,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
     private var battery: BatteryMetric?
     private var hasBatterySample = false
     private var batterySymbol = StatusDetail.battery.symbol
+    private var batteryLowPowerMode = false
     private var highlightTimer: Timer?
     var view: NSView { options }
     var toggles: [NSButton] { options.toggles }
@@ -105,11 +106,13 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         hasBatterySample = true
         options.updateBatteryAvailability(battery != nil)
         let symbol = battery?.symbol ?? StatusDetail.battery.symbol
-        if symbol != batterySymbol {
-            let image = NSImage(systemSymbolName: symbol, accessibilityDescription: "电池")?.withSymbolConfiguration(.preferringMonochrome())
+        let lowPowerMode = battery?.lowPowerMode == true
+        if symbol != batterySymbol || lowPowerMode != batteryLowPowerMode {
+            let image = battery?.iconImage ?? NSImage(systemSymbolName: symbol, accessibilityDescription: "电池")?.withSymbolConfiguration(.preferringMonochrome())
             image?.size = NSSize(width: 15, height: 15)
             items[.battery]?.image = image
             batterySymbol = symbol
+            batteryLowPowerMode = lowPowerMode
         }
         updateRows()
     }
@@ -126,12 +129,15 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
             case .disk:
                 value = MenuBarText.percent(snapshot?.disk?.percent)
                 detail = snapshot?.disk.map { String(format: "可用 %.1f / %.1f GB", $0.free / 1e9, $0.total / 1e9) } ?? "等待采样"
+            case .network:
+                value = "↓ " + NetworkText.rate(snapshot?.network?.downloadBytesPerSecond) + " ↑ " + NetworkText.rate(snapshot?.network?.uploadBytesPerSecond)
+                detail = snapshot?.network.map { $0.interfaces.isEmpty ? "未连接网络" : $0.interfaces.joined(separator: " · ") } ?? "等待网络采样"
             case .power:
                 value = snapshot.flatMap(MenuBarText.freshPower).map { String(format: "%.1f W", $0.watts) } ?? "--"
                 detail = "供电侧估算"
             case .battery:
                 value = battery.map { MenuBarText.percent($0.percent) } ?? (hasBatterySample ? "无电池" : "--")
-                detail = hasBatterySample ? (battery?.stateLabel ?? "无内置电池 · 外接电源") : "正在读取电池信息"
+                detail = hasBatterySample ? (battery?.modeSummary ?? "无内置电池 · 外接电源") : "正在读取电池信息"
             }
             // Render both lines together: AppKit can drop a separate subtitle when an attributed title changes during tracking.
             let title = NSMutableAttributedString(string: kind.title + "\n", attributes: [.font: NSFont.systemFont(ofSize: 13, weight: .medium)])
@@ -157,7 +163,7 @@ private final class StatusMenuOptionsView: NSView {
         let styleLabel = NSTextField(labelWithString: "菜单栏样式")
         styleLabel.font = .systemFont(ofSize: 11, weight: .medium)
         let choices = NSStackView(views: toggles)
-        choices.orientation = .horizontal; choices.distribution = .fillEqually; choices.spacing = 8
+        choices.orientation = .horizontal; choices.distribution = .fillEqually; choices.spacing = 4
         for toggle in toggles { toggle.target = self; toggle.action = #selector(changeSelection) }
         let open = NSButton(title: "资源面板", target: self, action: #selector(openMonitor))
         open.image = NSImage(systemSymbolName: "chart.bar.xaxis", accessibilityDescription: nil)

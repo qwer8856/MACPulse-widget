@@ -21,17 +21,18 @@ for architecture in arm64 x86_64; do
     xcrun swiftc -O -parse-as-library -swift-version 5 -target "$architecture-apple-macos14.0" \
     "${COMPILER_FLAGS[@]}" \
     -module-cache-path "$ARCH_BUILD_DIR/ModuleCache" \
-    -framework AppKit -framework WidgetKit -framework IOKit -framework ServiceManagement \
+    -framework AppKit -framework WidgetKit -framework IOKit -framework ServiceManagement -framework SystemConfiguration \
     "$SOURCE_DIR/Metrics.swift" "$SOURCE_DIR/MenuBarMonitor.swift" "$SOURCE_DIR/LoginItem.swift" \
     "$SOURCE_DIR/ResourceMonitorWindow.swift" "$SOURCE_DIR/MenuBarStyle.swift" "$SOURCE_DIR/DetailedMetrics.swift" \
     "$SOURCE_DIR/ResourceDetailsView.swift" "$SOURCE_DIR/StatusDetailView.swift" "$SOURCE_DIR/StatusMenuView.swift" "$SOURCE_DIR/UpdateChecker.swift" "$SOURCE_DIR/NativeHost.swift" \
+    "$SOURCE_DIR/NetworkMetrics.swift" "$SOURCE_DIR/NetworkSpeedTest.swift" "$SOURCE_DIR/NetworkDetailsView.swift" \
     -o "$ARCH_BUILD_DIR/DesktopMonitor"
     xcrun swiftc -O -parse-as-library -swift-version 5 -target "$architecture-apple-macos14.0" -D WIDGET_EXTENSION -application-extension \
     "${COMPILER_FLAGS[@]}" \
     -module-cache-path "$ARCH_BUILD_DIR/ModuleCache" \
     -Xlinker -e -Xlinker _NSExtensionMain \
-    -framework AppKit -framework IOKit -framework SwiftUI -framework WidgetKit \
-    "$SOURCE_DIR/Metrics.swift" "$SOURCE_DIR/NativeWidget.swift" \
+    -framework AppKit -framework IOKit -framework SwiftUI -framework WidgetKit -framework SystemConfiguration \
+    "$SOURCE_DIR/Metrics.swift" "$SOURCE_DIR/NetworkMetrics.swift" "$SOURCE_DIR/NativeWidget.swift" \
     -o "$ARCH_BUILD_DIR/SystemStatusWidget"
 done
 xcrun lipo -create "$BUILD_DIR/arm64/DesktopMonitor" "$BUILD_DIR/x86_64/DesktopMonitor" \

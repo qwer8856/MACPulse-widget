@@ -76,6 +76,7 @@ struct MetricsSnapshot {
     let memory: MemoryMetric?
     let disk: DiskMetric?
     let power: PowerMetric?
+    var network: NetworkMetric? = nil
 }
 
 final class MetricsCollector {

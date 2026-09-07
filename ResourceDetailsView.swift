@@ -133,6 +133,7 @@ final class BatteryDetailsView: NSView {
         values[0].stringValue = telemetry?.designCapacityMAh.map { String(format: "%.0f mAh", $0) } ?? "暂无数据"
         values[1].stringValue = telemetry?.fullChargeCapacityMAh.map { String(format: "%.0f mAh", $0) } ?? "暂无数据"
         values[2].stringValue = battery.external || battery.charging ? battery.stateLabel : "正在放电 · 电池供电"
+        if battery.lowPowerMode { values[2].stringValue += " · 低电量模式" }
         if let minutes = battery.minutesRemaining {
             values[3].stringValue = "约 \(minutes / 60) 小时 \(minutes % 60) 分钟"
         } else {
@@ -430,7 +431,7 @@ final class ProcessTableView: NSView, NSTableViewDataSource, NSTableViewDelegate
 
 final class ResourceDashboardView: NSView, NSTabViewDelegate {
     let tabs = NSTabView()
-    private let navigation = NSSegmentedControl(labels: ["总览与设置", "CPU", "内存", "磁盘", "功率", "电池"], trackingMode: .selectOne, target: nil, action: nil)
+    private let navigation = NSSegmentedControl(labels: ["总览与设置", "CPU", "内存", "磁盘", "网络", "功率", "电池"], trackingMode: .selectOne, target: nil, action: nil)
     let cpuTable = ProcessTableView(mode: .cpu)
     let memoryTable = ProcessTableView(mode: .memory)
     let energyTable = ProcessTableView(mode: .energy)
@@ -438,6 +439,7 @@ final class ResourceDashboardView: NSView, NSTabViewDelegate {
     private let cpuSummary = NSTextField(labelWithString: "等待 CPU 采样")
     private let memorySummary = MetricSummaryView(kind: .memory)
     private let diskSummary = MetricSummaryView(kind: .disk)
+    private let networkDetails = NetworkDetailsView()
     private let energySummary = MetricSummaryView(kind: .power)
     private let batterySummary = MetricSummaryView(kind: .battery)
     private var sample: MetricsSnapshot?
@@ -445,13 +447,13 @@ final class ResourceDashboardView: NSView, NSTabViewDelegate {
 
     init(configuration: ResourceMonitorContentView) {
         self.configuration = configuration
-        super.init(frame: NSRect(x: 0, y: 0, width: 820, height: 500))
+        super.init(frame: NSRect(x: 0, y: 0, width: 820, height: 560))
         navigation.segmentStyle = .smallSquare
         navigation.target = self; navigation.action = #selector(selectPage)
         navigation.selectedSegment = 0
         tabs.tabViewType = .noTabsNoBorder; tabs.delegate = self
         for view in [navigation, tabs] { view.translatesAutoresizingMaskIntoConstraints = false; addSubview(view) }
-        NSLayoutConstraint.activate([navigation.centerXAnchor.constraint(equalTo: centerXAnchor), navigation.topAnchor.constraint(equalTo: topAnchor, constant: 12), navigation.heightAnchor.constraint(equalToConstant: 28), navigation.widthAnchor.constraint(equalToConstant: 580), tabs.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14), tabs.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14), tabs.topAnchor.constraint(equalTo: navigation.bottomAnchor, constant: 12), tabs.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -14)])
+        NSLayoutConstraint.activate([navigation.centerXAnchor.constraint(equalTo: centerXAnchor), navigation.topAnchor.constraint(equalTo: topAnchor, constant: 12), navigation.heightAnchor.constraint(equalToConstant: 28), navigation.widthAnchor.constraint(equalToConstant: 660), tabs.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14), tabs.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14), tabs.topAnchor.constraint(equalTo: navigation.bottomAnchor, constant: 12), tabs.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -14)])
         let overview = NSView()
         configuration.translatesAutoresizingMaskIntoConstraints = false
         overview.addSubview(configuration)
@@ -466,6 +468,7 @@ final class ResourceDashboardView: NSView, NSTabViewDelegate {
         addTab("内存", view: page(header: memorySummary, height: memorySummary.preferredHeight, body: memoryTable))
         let diskPage = page(header: diskSummary, height: diskSummary.preferredHeight, body: NSView())
         addTab("磁盘", view: diskPage)
+        addTab("网络", view: page(header: networkDetails, height: networkDetails.preferredHeight, body: NSView()))
         addTab("功率", view: page(header: energySummary, height: energySummary.preferredHeight, body: energyTable))
         addTab("电池", view: page(header: batterySummary, height: batterySummary.preferredHeight, body: NSView()))
         cpuSummary.font = .systemFont(ofSize: 12); cpuSummary.textColor = .secondaryLabelColor
@@ -502,11 +505,12 @@ final class ResourceDashboardView: NSView, NSTabViewDelegate {
         switch navigation.selectedSegment {
         case 1: cpuTable.update(details)
         case 2: memoryTable.update(details)
-        case 4: energyTable.update(details)
+        case StatusDetail.power.page: energyTable.update(details)
         default: break
         }
     }
     private func updateSummaries() {
+        networkDetails.update(sample?.network)
         cpuSummary.stringValue = "CPU 总利用率 \(MenuBarText.percent(sample?.cpu))"
         for view in [memorySummary, diskSummary, energySummary, batterySummary] { view.update(sample, details: details) }
     }

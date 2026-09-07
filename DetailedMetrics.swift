@@ -132,6 +132,7 @@ struct BatteryMetric {
     let health: String?
     var charged: Bool = false
     var telemetry: BatteryTelemetry? = nil
+    var lowPowerMode: Bool = false
 
     static func decode(_ info: [String: Any]) -> BatteryMetric? {
         guard info[kIOPSTypeKey] as? String == kIOPSInternalBatteryType,
@@ -159,6 +160,7 @@ struct BatteryMetric {
             if let description = IOPSGetPowerSourceDescription(info, source)?.takeUnretainedValue() as? [String: Any],
                var battery = decode(description) {
                 battery.telemetry = BatteryTelemetry.read()
+                battery.lowPowerMode = ProcessInfo.processInfo.isLowPowerModeEnabled
                 return battery
             }
         }
@@ -166,8 +168,10 @@ struct BatteryMetric {
     }
 
     var summary: String {
-        "电池 \(MenuBarText.percent(percent)) · \(statusSummary)"
+        "电池 \(MenuBarText.percent(percent)) · \(statusSummary)" + (lowPowerMode ? " · 低电量模式" : "")
     }
+
+    var modeSummary: String { stateLabel + (lowPowerMode ? " · 低电量模式" : "") }
 
     var symbol: String {
         if charging { return "battery.100percent.bolt" }

@@ -2,30 +2,35 @@ import AppKit
 import ServiceManagement
 
 enum MenuBarMetric: String, CaseIterable {
-    case cpu, memory, disk, power, battery
+    case cpu, memory, disk, network, power, battery
 
     static let font = NSFont.monospacedDigitSystemFont(ofSize: 11, weight: .medium)
+    static let statusOrder: [MenuBarMetric] = [.cpu, .memory, .disk, .power, .battery, .network]
 
     var label: String {
         switch self {
         case .cpu: return "CPU"
         case .memory: return "内存"
         case .disk: return "磁盘"
+        case .network: return "网络"
         case .power: return "功率"
         case .battery: return "电池"
         }
     }
 
     static func title(for metrics: Set<MenuBarMetric>, snapshot: MetricsSnapshot?, battery: BatteryMetric? = nil) -> String {
-        allCases.filter { metrics.contains($0) }.map { $0.title(snapshot, battery: battery) }.joined(separator: "  ")
+        statusOrder.filter { metrics.contains($0) }.map { $0.title(snapshot, battery: battery) }.joined(separator: "  ")
     }
 
     static func attributedTitle(for metrics: Set<MenuBarMetric>, snapshot: MetricsSnapshot?, battery: BatteryMetric?) -> NSAttributedString {
         let result = NSMutableAttributedString(string: "")
-        for metric in allCases where metrics.contains(metric) {
-            if result.length > 0 { result.append(NSAttributedString(string: "  ")) }
+        for metric in statusOrder where metrics.contains(metric) {
+            if result.length > 0 {
+                result.append(NSAttributedString(string: metric == .network ? " | " : " ",
+                    attributes: metric == .network ? [.foregroundColor: NSColor.secondaryLabelColor] : [:]))
+            }
             if metric == .battery, let battery,
-               let image = NSImage(systemSymbolName: battery.symbol, accessibilityDescription: battery.summary)?.withSymbolConfiguration(.preferringMonochrome()) {
+               let image = battery.iconImage {
                 let attachment = NSTextAttachment()
                 attachment.image = image
                 attachment.bounds = NSRect(x: 0, y: (font.capHeight - 11) / 2, width: 21, height: 11)
@@ -42,9 +47,11 @@ enum MenuBarMetric: String, CaseIterable {
     static func width(for metrics: Set<MenuBarMetric>) -> CGFloat {
         guard !metrics.isEmpty else { return NSStatusItem.squareLength }
         // Reserve the widest valid readings so sampling never shifts nearby menu items.
-        let maximum = allCases.filter { metrics.contains($0) }.map {
-            $0.label + ($0 == .power ? " 1000.0 W" : " 100%")
-        }.joined(separator: "  ")
+        let selected = statusOrder.filter { metrics.contains($0) }
+        let maximum = selected.enumerated().map { index, metric in
+            let separator = index == 0 ? "" : (metric == .network ? " | " : " ")
+            return separator + metric.label + (metric == .network ? " ↓ 999.9 GB/s ↑ 999.9 GB/s" : (metric == .power ? " 1000.0 W" : " 100%"))
+        }.joined()
         return ceil((maximum as NSString).size(withAttributes: [.font: font]).width) + 34
     }
 
@@ -53,6 +60,7 @@ enum MenuBarMetric: String, CaseIterable {
         case .cpu: return "CPU \(MenuBarText.percent(snapshot?.cpu))"
         case .memory: return "内存 \(MenuBarText.percent(snapshot?.memory?.percent))"
         case .disk: return "磁盘 \(MenuBarText.percent(snapshot?.disk?.percent))"
+        case .network: return "网络 ↓ " + NetworkText.rate(snapshot?.network?.downloadBytesPerSecond) + " ↑ " + NetworkText.rate(snapshot?.network?.uploadBytesPerSecond)
         case .power:
             let power = snapshot.flatMap { MenuBarText.freshPower($0) }
             return "功率 " + (power.map { String(format: "%.1f W", $0.watts) } ?? "--")
@@ -151,7 +159,7 @@ final class ResourceMonitorContentView: NSView {
             metricsView.topAnchor.constraint(equalTo: topAnchor),
             metricsView.leadingAnchor.constraint(equalTo: leadingAnchor),
             metricsView.widthAnchor.constraint(equalTo: widthAnchor, multiplier: 0.5, constant: -20),
-            metricsView.heightAnchor.constraint(equalToConstant: 342),
+            metricsView.heightAnchor.constraint(equalToConstant: 394),
             separator.topAnchor.constraint(equalTo: topAnchor, constant: 12),
             separator.centerXAnchor.constraint(equalTo: centerXAnchor),
             separator.widthAnchor.constraint(equalToConstant: 1),

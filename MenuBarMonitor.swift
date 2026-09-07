@@ -13,6 +13,7 @@ final class LiveMetricsMonitor {
         let generation = UUID()
         self.generation = generation
         let collector = MetricsCollector(diskReadInterval: 0, powerReadInterval: 0)
+        let networkCollector = NetworkCollector()
         var lastSample: Date?
         let timer = DispatchSource.makeTimerSource(queue: queue)
         timer.schedule(deadline: .now(), repeating: 1, leeway: .milliseconds(100))
@@ -22,7 +23,8 @@ final class LiveMetricsMonitor {
             if let lastSample, now.timeIntervalSince(lastSample) > 3 {
                 collector.reset()
             }
-            let snapshot = collector.sample(now: now)
+            var snapshot = collector.sample(now: now)
+            snapshot.network = networkCollector.sample(now: now)
             let battery = BatteryMetric.read()
             lastSample = now
             RunLoop.main.perform(inModes: [.default, .eventTracking, .modalPanel]) { [weak self] in
@@ -61,19 +63,22 @@ enum MenuBarText {
 }
 
 final class MenuMetricRow: NSView {
+    private let icon = NSImageView()
     private let value = NSTextField(labelWithString: "--")
     private let detail = NSTextField(labelWithString: "等待采样")
     private let bar: MetricBar?
 
-    init(title: String, symbol: String, color: NSColor, showsBar: Bool = true) {
+    init(title: String, symbol: String, color: NSColor, showsBar: Bool = true, valueFontSize: CGFloat = 18) {
         bar = showsBar ? MetricBar(color: color) : nil
         super.init(frame: .zero)
-        let icon = NSImageView(image: NSImage(systemSymbolName: symbol, accessibilityDescription: title)!)
+        icon.image = NSImage(systemSymbolName: symbol, accessibilityDescription: title)
         icon.contentTintColor = color
         let label = NSTextField(labelWithString: title)
         label.font = .systemFont(ofSize: 12, weight: .medium)
-        value.font = .monospacedDigitSystemFont(ofSize: 18, weight: .semibold)
+        value.font = .monospacedDigitSystemFont(ofSize: valueFontSize, weight: .semibold)
         value.alignment = .right
+        value.setContentCompressionResistancePriority(.required, for: .horizontal)
+        value.setContentHuggingPriority(.required, for: .horizontal)
         detail.font = .systemFont(ofSize: 11)
         detail.textColor = .secondaryLabelColor
         detail.lineBreakMode = .byTruncatingTail
@@ -91,9 +96,9 @@ final class MenuMetricRow: NSView {
             label.centerYAnchor.constraint(equalTo: icon.centerYAnchor),
             value.trailingAnchor.constraint(equalTo: trailingAnchor),
             value.leadingAnchor.constraint(greaterThanOrEqualTo: label.trailingAnchor, constant: 8),
-            value.topAnchor.constraint(equalTo: topAnchor),
+            value.centerYAnchor.constraint(equalTo: centerYAnchor, constant: showsBar ? -5 : 0),
             detail.leadingAnchor.constraint(equalTo: label.leadingAnchor),
-            detail.trailingAnchor.constraint(equalTo: trailingAnchor),
+            detail.trailingAnchor.constraint(lessThanOrEqualTo: value.leadingAnchor, constant: -10),
             detail.topAnchor.constraint(equalTo: topAnchor, constant: 23)
         ])
         if let bar {
@@ -108,6 +113,11 @@ final class MenuMetricRow: NSView {
 
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
+    func updateBatteryIcon(_ battery: BatteryMetric?) {
+        icon.image = NSImage(systemSymbolName: battery?.symbol ?? "battery.100percent", accessibilityDescription: "电池")
+        icon.contentTintColor = battery?.lowPowerMode == true ? .systemYellow : .systemTeal
+    }
+
     func update(value: String, detail: String, reading: Double? = nil, maximum: Double = 100, color: NSColor? = nil) {
         self.value.stringValue = value
         self.detail.stringValue = detail
@@ -120,6 +130,7 @@ final class MenuBarContentView: NSView {
     private let cpu = MenuMetricRow(title: "CPU", symbol: "cpu", color: .systemCyan, showsBar: false)
     private let memory = MenuMetricRow(title: "内存", symbol: "memorychip", color: .systemGreen)
     private let disk = MenuMetricRow(title: "磁盘", symbol: "internaldrive", color: .systemOrange)
+    private let network = MenuMetricRow(title: "网络", symbol: "network", color: .systemBlue, showsBar: false, valueFontSize: 12)
     private let power = MenuMetricRow(title: "功率", symbol: "bolt.fill", color: .systemPink)
     private let battery = MenuMetricRow(title: "电池", symbol: "battery.100percent", color: .systemTeal)
     private let pressure = NSTextField(labelWithString: "压力未知")
@@ -132,13 +143,13 @@ final class MenuBarContentView: NSView {
     }()
 
     init() {
-        super.init(frame: NSRect(x: 0, y: 0, width: 360, height: 342))
+        super.init(frame: NSRect(x: 0, y: 0, width: 360, height: 394))
         let title = NSTextField(labelWithString: "系统状态")
         title.font = .systemFont(ofSize: 13, weight: .semibold)
         timestamp.font = .monospacedDigitSystemFont(ofSize: 10, weight: .regular)
         timestamp.textColor = .secondaryLabelColor
         pressure.font = .systemFont(ofSize: 11, weight: .medium)
-        for view in [title, timestamp, cpu, memory, disk, power, battery, pressure] {
+        for view in [title, timestamp, cpu, memory, disk, network, power, battery, pressure] {
             view.translatesAutoresizingMaskIntoConstraints = false
             addSubview(view)
         }
@@ -151,13 +162,14 @@ final class MenuBarContentView: NSView {
             cpu.topAnchor.constraint(equalTo: topAnchor, constant: 46),
             memory.topAnchor.constraint(equalTo: cpu.bottomAnchor),
             disk.topAnchor.constraint(equalTo: memory.bottomAnchor),
-            power.topAnchor.constraint(equalTo: disk.bottomAnchor),
+            network.topAnchor.constraint(equalTo: disk.bottomAnchor),
+            power.topAnchor.constraint(equalTo: network.bottomAnchor),
             battery.topAnchor.constraint(equalTo: power.bottomAnchor),
             pressure.topAnchor.constraint(equalTo: battery.bottomAnchor, constant: 5),
             pressure.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
             pressure.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14)
         ])
-        for row in [cpu, memory, disk, power, battery] {
+        for row in [cpu, memory, disk, network, power, battery] {
             NSLayoutConstraint.activate([
                 row.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14),
                 row.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14)
@@ -168,14 +180,17 @@ final class MenuBarContentView: NSView {
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
 
     func updateDetails(_ details: DetailedSnapshot) {
+        battery.updateBatteryIcon(details.battery)
         guard let metric = details.battery else {
             battery.update(value: "无电池", detail: "无内置电池 · 外接电源")
             return
         }
-        battery.update(value: MenuBarText.percent(metric.percent), detail: metric.powerSummary, reading: metric.percent, color: (metric.percent ?? 100) <= 20 ? .systemRed : .systemTeal)
+        battery.update(value: MenuBarText.percent(metric.percent), detail: metric.powerSummary + (metric.lowPowerMode ? " · 低电量模式" : ""), reading: metric.percent, color: (metric.percent ?? 100) <= 20 ? .systemRed : .systemTeal)
     }
 
     func update(_ snapshot: MetricsSnapshot) {
+        network.update(value: "↓ " + NetworkText.rate(snapshot.network?.downloadBytesPerSecond) + "  ↑ " + NetworkText.rate(snapshot.network?.uploadBytesPerSecond),
+            detail: snapshot.network.map { $0.interfaces.isEmpty ? "未连接网络" : $0.interfaces.joined(separator: " · ") } ?? "等待网络采样")
         cpu.update(value: MenuBarText.percent(snapshot.cpu), detail: "\(ProcessInfo.processInfo.processorCount) 核")
         memory.update(value: MenuBarText.percent(snapshot.memory?.percent), detail: snapshot.memory.map {
             String(format: "已用 %.1f / %.0f GiB · 压缩 %.1f GiB", $0.occupied / 1_073_741_824, $0.total / 1_073_741_824, $0.compressed / 1_073_741_824)

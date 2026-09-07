@@ -1,13 +1,14 @@
 import AppKit
 
 enum StatusDetail: String, CaseIterable {
-    case cpu, memory, disk, power, battery
+    case cpu, memory, disk, network, power, battery
 
     var title: String {
         switch self {
         case .cpu: return "CPU"
         case .memory: return "内存"
         case .disk: return "磁盘"
+        case .network: return "网络"
         case .power: return "功率"
         case .battery: return "电池"
         }
@@ -17,12 +18,13 @@ enum StatusDetail: String, CaseIterable {
         case .cpu: return "cpu"
         case .memory: return "memorychip"
         case .disk: return "internaldrive"
+        case .network: return "network"
         case .power: return "bolt.fill"
         case .battery: return "battery.100percent"
         }
     }
     var page: Int {
-        switch self { case .cpu: return 1; case .memory: return 2; case .disk: return 3; case .power: return 4; case .battery: return 5 }
+        switch self { case .cpu: return 1; case .memory: return 2; case .disk: return 3; case .network: return 4; case .power: return 5; case .battery: return 6 }
     }
 }
 
@@ -33,6 +35,7 @@ final class StatusDetailView: NSView {
     private let title = NSTextField(labelWithString: "")
     private let summary = NSTextField(wrappingLabelWithString: "等待采样")
     private let metricSummary: MetricSummaryView?
+    private let networkDetails: NetworkDetailsView?
     private var snapshot: MetricsSnapshot?
     private var details: DetailedSnapshot?
     private var isPresented = false
@@ -40,8 +43,9 @@ final class StatusDetailView: NSView {
 
     init(kind: StatusDetail) {
         self.kind = kind
-        metricSummary = kind == .cpu ? nil : MetricSummaryView(kind: kind, compact: true)
-        super.init(frame: NSRect(x: 0, y: 0, width: 520, height: kind == .disk ? 172 : (kind == .battery ? 368 : 500)))
+        metricSummary = kind == .cpu || kind == .network ? nil : MetricSummaryView(kind: kind, compact: true)
+        networkDetails = kind == .network ? NetworkDetailsView(compact: true) : nil
+        super.init(frame: NSRect(x: 0, y: 0, width: 520, height: kind == .disk ? 172 : (kind == .battery ? 368 : (kind == .network ? 378 : 500))))
         title.stringValue = kind.title
         title.font = .systemFont(ofSize: 13, weight: .semibold)
         summary.font = .systemFont(ofSize: 11)
@@ -49,15 +53,15 @@ final class StatusDetailView: NSView {
         let open = NSButton(title: "资源面板", target: self, action: #selector(openMonitor))
         open.image = NSImage(systemSymbolName: "chart.bar.xaxis", accessibilityDescription: nil)
         open.imagePosition = .imageLeading; open.bezelStyle = .rounded
-        let header: NSView = metricSummary ?? summary
+        let header: NSView = networkDetails ?? metricSummary ?? summary
         for view in [title, header, open] { view.translatesAutoresizingMaskIntoConstraints = false; addSubview(view) }
         NSLayoutConstraint.activate([
             title.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 14), title.topAnchor.constraint(equalTo: topAnchor, constant: 12),
             header.leadingAnchor.constraint(equalTo: title.leadingAnchor), header.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -14),
-            header.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 10), header.heightAnchor.constraint(equalToConstant: metricSummary?.preferredHeight ?? 28),
+            header.topAnchor.constraint(equalTo: title.bottomAnchor, constant: 10), header.heightAnchor.constraint(equalToConstant: networkDetails?.preferredHeight ?? metricSummary?.preferredHeight ?? 28),
             open.leadingAnchor.constraint(equalTo: title.leadingAnchor), open.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -14)
         ])
-        if kind == .battery || kind == .disk { return }
+        if kind == .battery || kind == .disk || kind == .network { return }
         let mode: ProcessSort = kind == .cpu ? .cpu : (kind == .memory ? .memory : .energy)
         let table = ProcessTableView(mode: mode, compact: true, allowsTermination: false)
         processes = table
@@ -103,6 +107,7 @@ final class StatusDetailView: NSView {
             if updateTable { cores.update(details?.cores ?? Array(repeating: nil, count: ProcessInfo.processInfo.processorCount)) }
         }
         metricSummary?.update(snapshot, details: details)
+        networkDetails?.update(snapshot?.network)
         if updateTable {
             if let details { processes?.update(details) }
             else { processes?.clear() }

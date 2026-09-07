@@ -109,7 +109,7 @@ final class NativeHostDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         updateStatusItem()
     }
 
-    func applicationWillTerminate(_ notification: Notification) { monitor.stop(); detailMonitor.stop(); updateChecker.stop() }
+    func applicationWillTerminate(_ notification: Notification) { monitor.stop(); detailMonitor.stop(); updateChecker.stop(); NetworkSpeedTest.shared.stop() }
 
     func applicationDidBecomeActive(_ notification: Notification) {
         resourceView?.updateLoginItem(loginItem.status)
@@ -124,11 +124,10 @@ final class NativeHostDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
         let title = MenuBarMetric.title(for: visible, snapshot: snapshot, battery: battery)
         let presentation = MenuBarPresentation(style: preferences.menuBarStyle, metrics: visible, snapshot: snapshot, battery: battery, updateAvailable: updateChecker.state.available)
         let updateText = updateChecker.state.available ? "，有新版本" : ""
-        if statusItem.length != presentation.width { statusItem.length = presentation.width }
-        statusItem.button?.attributedTitle = presentation.title
-        statusItem.button?.image = presentation.image
-        statusItem.button?.setAccessibilityLabel(title.isEmpty && updateText.isEmpty ? "系统状态" : "系统状态，\(title)\(updateText)")
-        statusItem.button?.toolTip = preferences.menuBarStyle == .standard ? (visible.contains(.battery) ? "系统状态，" + (battery?.summary ?? title) : "系统状态") : "系统状态，" + title
+        presentation.apply(to: statusItem)
+        let modeText = visible.contains(.battery) && battery?.lowPowerMode == true ? "，低电量模式" : ""
+        statusItem.button?.setAccessibilityLabel(title.isEmpty && updateText.isEmpty ? "系统状态" : "系统状态，\(title)\(updateText)\(modeText)")
+        statusItem.button?.toolTip = visible.contains(.battery) ? "系统状态，" + (battery?.summary ?? title) : (preferences.menuBarStyle == .standard ? "系统状态" : "系统状态，" + title)
     }
 
     private func changeMenuBarStyle(_ style: MenuBarStyle) {
@@ -214,7 +213,7 @@ final class NativeHostDelegate: NSObject, NSApplicationDelegate, NSWindowDelegat
             window.level = .normal
             window.isReleasedWhenClosed = false
             window.contentView = dashboard
-            window.contentMinSize = NSSize(width: 780, height: 480)
+            window.contentMinSize = NSSize(width: 780, height: 540)
             window.delegate = self
             window.center()
             self.window = window
