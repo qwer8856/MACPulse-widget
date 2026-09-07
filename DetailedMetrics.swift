@@ -50,6 +50,24 @@ struct ProcessReading {
     }
 }
 
+enum MacHardware {
+    case appleSilicon, intel
+
+    static let current: MacHardware = {
+        #if arch(arm64)
+        return .appleSilicon
+        #else
+        // Rosetta translates the executable architecture, not the battery hardware.
+        for key in ["hw.optional.arm64", "sysctl.proc_translated"] {
+            var value: Int32 = 0
+            var size = MemoryLayout<Int32>.size
+            if sysctlbyname(key, &value, &size, nil, 0) == 0, value == 1 { return .appleSilicon }
+        }
+        return .intel
+        #endif
+    }()
+}
+
 struct BatteryTelemetry {
     let designCapacityMAh: Double?
     let fullChargeCapacityMAh: Double?
@@ -66,30 +84,34 @@ struct BatteryTelemetry {
         guard let voltage, let currentAmps else { return nil }
         return voltage * currentAmps
     }
-    static func decode(_ properties: [String: Any]) -> BatteryTelemetry {
+    static func decode(_ properties: [String: Any], hardware: MacHardware = .current) -> BatteryTelemetry {
         let data = properties["BatteryData"] as? [String: Any] ?? [:]
         func positive(_ values: Any?...) -> Double? {
             values.compactMap { ($0 as? NSNumber)?.doubleValue }.first { $0.isFinite && $0 > 0 }
         }
         let design = positive(properties["DesignCapacity"], data["DesignCapacity"])
-        let full = positive(properties["AppleRawMaxCapacity"], properties["NominalChargeCapacity"], data["NominalChargeCapacity"], data["FullChargeCapacity"])
+        // Older Intel batteries expose mAh in MaxCapacity; newer batteries may expose 100 percent.
+        let legacyFull = positive(properties["MaxCapacity"]).flatMap { $0 > 100 ? $0 : nil }
+        let rawFull = positive(properties["AppleRawMaxCapacity"], properties["NominalChargeCapacity"], data["NominalChargeCapacity"], data["FullChargeCapacity"])
+        let full = hardware == .intel ? (legacyFull ?? rawFull) : (rawFull ?? legacyFull)
         let rawTemperature = (properties["Temperature"] as? NSNumber)?.doubleValue
         let temperature = rawTemperature.map { $0 / 100 }
         let voltage = positive(properties["Voltage"]).map { $0 / 1000 }
-        let rawCurrent = (properties["InstantAmperage"] as? NSNumber) ?? (properties["Amperage"] as? NSNumber)
         // IORegistry may encode negative discharge current as an unsigned two's-complement integer.
-        let current = rawCurrent.flatMap { number -> Double? in
-            guard number.doubleValue.isFinite else { return nil }
+        func decodeCurrent(_ value: Any?) -> Double? {
+            guard let number = value as? NSNumber, number.doubleValue.isFinite else { return nil }
             let signed = number.int64Value
             let milliamps = signed > Int32.max && signed <= UInt32.max ? Int64(Int32(bitPattern: number.uint32Value)) : signed
-            return Double(milliamps) / 1000
+            let amps = Double(milliamps) / 1000
+            return abs(amps) <= 50 ? amps : nil
         }
+        let current = decodeCurrent(properties["InstantAmperage"]) ?? decodeCurrent(properties["Amperage"])
         let cycles = (properties["CycleCount"] as? NSNumber)?.intValue
         return BatteryTelemetry(designCapacityMAh: design, fullChargeCapacityMAh: full,
             cycleCount: cycles.flatMap { $0 >= 0 ? $0 : nil },
             temperatureCelsius: temperature.flatMap { $0.isFinite && (-20...100).contains($0) ? $0 : nil },
             voltage: voltage.flatMap { $0 <= 30 ? $0 : nil },
-            currentAmps: current.flatMap { abs($0) <= 50 ? $0 : nil })
+            currentAmps: current)
     }
     static func read() -> BatteryTelemetry? {
         let service = IOServiceGetMatchingService(kIOMainPortDefault, IOServiceMatching("AppleSmartBattery"))
@@ -117,8 +139,9 @@ struct BatteryMetric {
         let current = (info[kIOPSCurrentCapacityKey] as? NSNumber)?.doubleValue
         let maximum = (info[kIOPSMaxCapacityKey] as? NSNumber)?.doubleValue
         let percent: Double?
-        if let current, let maximum, maximum > 0, current >= 0 {
-            percent = min(100, current / maximum * 100)
+        if let current, let maximum, current.isFinite, maximum.isFinite, maximum > 0, current >= 0 {
+            let ratio = current / maximum * 100
+            percent = ratio.isFinite ? min(100, ratio) : nil
         } else { percent = nil }
         let charging = (info[kIOPSIsChargingKey] as? NSNumber)?.boolValue ?? false
         let external = info[kIOPSPowerSourceStateKey] as? String == kIOPSACPowerValue
@@ -200,10 +223,16 @@ final class DetailedCollector {
     private var previousCores: [CPUTicks] = []
     private var lastTime: Double?
     private var sampleNumber = 0
-    private let nanosecondsPerTick: Double = {
+    private let secondsPerTick: Double = {
+        // libproc uses host ticks even when Rosetta gives this process a different Mach timebase.
+        var frequency: UInt64 = 0
+        var size = MemoryLayout<UInt64>.size
+        if sysctlbyname("hw.tbfrequency", &frequency, &size, nil, 0) == 0, frequency > 0 {
+            return 1 / Double(frequency)
+        }
         var timebase = mach_timebase_info_data_t()
         mach_timebase_info(&timebase)
-        return Double(timebase.numer) / Double(timebase.denom)
+        return Double(timebase.numer) / Double(timebase.denom) / 1e9
     }()
     private let host = mach_host_self()
     deinit { mach_port_deallocate(mach_task_self_, host) }
@@ -235,7 +264,7 @@ final class DetailedCollector {
             next[pid] = metadata
             energyAvailable = energyAvailable || (reading.energy ?? 0) > 0
             // libproc CPU times use Mach ticks; process energy is already in nanojoules.
-            let cpu = ProcessReading.rate(reading.cpuTime, previous: old?.reading.cpuTime, seconds: interval).map { $0 * nanosecondsPerTick / 1e9 * 100 }
+            let cpu = ProcessReading.rate(reading.cpuTime, previous: old?.reading.cpuTime, seconds: interval).map { $0 * secondsPerTick * 100 }
             let energy = ProcessReading.rate(reading.energy, previous: old?.reading.energy, seconds: interval).map { $0 / 1e9 }
             processes.append(ProcessMetric(identity: ProcessIdentity(pid: pid, startedAt: reading.startedAt),
                 name: metadata.name.isEmpty ? "PID \(pid)" : metadata.name, path: metadata.path, uid: metadata.uid,

@@ -2,15 +2,17 @@
 
 原生 macOS 资源面板、可选菜单栏监控与桌面小组件。查看各核心 CPU、进程内存、磁盘容量、电池与进程 CPU 能耗，并由用户选择退出进程。资源面板使用普通窗口，不会置顶。
 
-当前版本：**3.7.1**。安装后的应用和小组件名称均为 **“系统状态”**。
+当前版本：**3.8.0**。安装后的应用和小组件名称均为 **“系统状态”**。
 
 ## 下载安装
 
-**[下载安装包：MacPulse Widget 3.7.1（M 系列 Mac）](https://github.com/qwer8856/MACPulse-widget/releases/download/v3.7.1/MACPulse-Widget-v3.7.1-macOS-arm64.zip)**
+**[下载安装包：MacPulse Widget 3.8.0（M 系列 / Intel 通用）](https://github.com/qwer8856/MACPulse-widget/releases/download/v3.8.0/MACPulse-Widget-v3.8.0-macOS-universal.zip)**
 
-[版本发布页与校验文件](https://github.com/qwer8856/MACPulse-widget/releases/tag/v3.7.1)
+[版本发布页与校验文件](https://github.com/qwer8856/MACPulse-widget/releases/tag/v3.8.0)
 
-需要 Apple Silicon Mac（M 系列）和 macOS 14 或更新版本。
+支持 Apple Silicon Mac（M 系列）与 Intel Mac，需要 macOS 14 或更新版本。应用和桌面小组件均包含两种架构，系统自动选择对应版本。
+
+**Intel 支持仍处于测试阶段，有问题请[提交 Issue](https://github.com/qwer8856/MACPulse-widget/issues)。** 请附上 Mac 型号、芯片型号、macOS 版本、应用版本、问题截图及复现步骤，并遮挡截图中的个人信息。已在 M4 Mac mini 上完成原生运行及 Rosetta 下的 Intel 架构测试，尚未在 Intel 真机上验证。
 
 1. 从 [Releases](https://github.com/qwer8856/MACPulse-widget/releases) 下载并解压 ZIP 安装包。
 2. 将“系统状态.app”拖入“应用程序”文件夹并打开。
@@ -116,9 +118,9 @@ MacBook 电池状态区分放电、正在充电、已充满和外接电源未充
 | 磁盘总览 | 内置 APFS 主容器总容量减去共享可用空间，单位 GB |
 | 供电功率 | 设备供电侧遥测，单位 W，不是累计耗电量，不含外接显示器，部分机型或电池供电时不可用 |
 | 电池净功率 | 电池电压乘以电流，正值为充电、负值为放电，界面显示方向及绝对瓦数；与整机供电功率不同，采样频率不代表传感器每秒更新 |
-| 进程 CPU 能耗 | 系统进程 CPU 能量计数增量除以采样时间，单位 W；仅为 CPU 部分的估算，不含 GPU、磁盘、网络和显示器，不等同于活动监视器的“能耗影响” |
+| 进程 CPU 能耗 | Apple Silicon 上按系统进程 CPU 能量计数增量除以采样时间，单位 W；仅为 CPU 部分的估算，不含 GPU、磁盘、网络和显示器，不等同于活动监视器的“能耗影响”。Intel 不提供此计数，显示 `--` |
 
-进程能耗依赖系统和硬件支持，不支持时显示 `--`。无内置电池的桌面 Mac 显示“无内置电池”；电池时间和健康信息以系统可提供的数据为准。本机为无内置电池的 Mac，笔记本电池解析使用样本测试，尚未在真实笔记本上验证充放电状态。
+进程能耗依赖系统和硬件支持，不支持时显示 `--`。整机供电功率和电池高级传感器字段的可用性因机型而异，缺失时显示“暂无数据”或 `--`，不会补造读数。无内置电池的桌面 Mac 显示“无内置电池”；电池时间和健康信息以系统可提供的数据为准。本机为无内置电池的 Mac，笔记本电池解析使用样本测试，尚未在真实笔记本上验证充放电状态。
 
 资源监控在本地运行，不记录运行日志，不需要辅助功能、录屏或用户目录访问权限；检查更新时访问 GitHub，点击下载时打开浏览器。
 
