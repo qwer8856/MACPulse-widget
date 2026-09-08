@@ -141,8 +141,8 @@ struct MenuBarPresentation {
                 let reading = value(metric, snapshot: snapshot, battery: battery) as NSString
                 let readingSize = reading.size(withAttributes: attributes)
                 if metric == .network {
-                    networkLayout.draw(snapshot?.network?.downloadBytesPerSecond, arrow: "↓", at: NSPoint(x: x, y: 10))
-                    networkLayout.draw(snapshot?.network?.uploadBytesPerSecond, arrow: "↑", at: NSPoint(x: x, y: 0))
+                    networkLayout.draw(snapshot?.network?.uploadBytesPerSecond, arrow: "↑", at: NSPoint(x: x, y: 10))
+                    networkLayout.draw(snapshot?.network?.downloadBytesPerSecond, arrow: "↓", at: NSPoint(x: x, y: 0))
                 } else if style == .standard && metric != .battery {
                     let text = (metric.label + " " + (reading as String)) as NSString
                     text.draw(at: NSPoint(x: x, y: (height - text.size(withAttributes: attributes).height) / 2), withAttributes: attributes)
